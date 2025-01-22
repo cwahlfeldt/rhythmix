@@ -22,7 +22,7 @@ pub struct GeneratorConfig {
 impl Default for GeneratorConfig {
     fn default() -> Self {
         Self {
-            lane_count: 4,
+            lane_count: 3,
             difficulty: DifficultyConfig::default(),
             min_pattern_repeat_time: Duration::from_secs(4),
             max_same_lane_repeat: 2,
