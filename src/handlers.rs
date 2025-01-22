@@ -115,7 +115,7 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
 
     let full_boundary = format!("--{}", boundary);
     let boundary_bytes = full_boundary.as_bytes();
-    let mut start_idx = 0;
+    let start_idx = 0;
 
     // Find all boundary positions
     let mut boundary_positions: Vec<usize> = bytes
