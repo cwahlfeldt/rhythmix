@@ -252,7 +252,7 @@ mod tests {
         assert!(markers.is_empty()); // No onsets, should be empty
 
         let mut analyzer_with_onsets = analyzer;
-        analyzer_with_onsets.onset_times = vec![0.0, 0.5, 1.0, 1.5, 2.0];
+        analyzer_with_onsets.onset_times = unsafe { vec![0.0, 0.5, 1.0, 1.5, 2.0] };
 
         let markers = analyzer_with_onsets.generate_beat_markers(120.0);
         assert!(!markers.is_empty());
