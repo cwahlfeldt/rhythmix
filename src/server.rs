@@ -3,7 +3,7 @@ use crate::handlers::{convert_error, handle_request};
 use crate::thread_pool::ThreadPool;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server;
-use log::{error, info};
+use log::info;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -117,6 +117,8 @@ pub fn load_config_from_env() -> ServerConfig {
 
 #[cfg(test)]
 mod tests {
+    use crate::error;
+
     use super::*;
     use hyper::{Body, Client, Method, Request};
     use std::time::Duration;

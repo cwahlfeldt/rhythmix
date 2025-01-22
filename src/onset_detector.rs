@@ -65,7 +65,7 @@ impl OnsetDetector {
     /// true if an onset was detected, false otherwise
     pub fn process(&mut self, samples: &[f32]) -> Result<bool> {
         // Compute FFT magnitudes
-        let mut magnitudes = self.fft.process(samples)?;
+        let magnitudes = self.fft.process(samples)?;
 
         // Compute frequency bands
         let bands = self.compute_frequency_bands(&magnitudes);

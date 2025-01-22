@@ -48,7 +48,7 @@ impl AudioDecoder {
     ///
     /// # Errors
     /// Returns an error if the audio cannot be decoded
-    fn from_reader<R>(mut reader: R) -> Result<Self>
+    fn from_reader<R>(reader: R) -> Result<Self>
     where
         R: Read + Seek + Send + Sync + 'static,
     {

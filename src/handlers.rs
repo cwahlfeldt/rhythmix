@@ -3,10 +3,8 @@ use crate::audio_decoder::AudioDecoder;
 use crate::error::{helpers, Result, RhythmixError};
 use crate::pattern_generator::{GeneratorConfig, PatternGenerator};
 use crate::thread_pool::ThreadPool;
-use bytes::Bytes;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
 use std::sync::Arc;
 
 /// Maximum file size (10MB)
