@@ -88,7 +88,7 @@ export const useGameState = (initialRefreshRate = 60) => {
 
     setTimeout(() => {
       setHitEffects(prev => prev.filter(effect => effect.id !== effectId));
-    }, 150);
+    }, 160); // slightly longer than animation to ensure smooth removal
   };
 
   const updateScore = (hitAccuracy) => {
@@ -116,7 +116,8 @@ export const useGameState = (initialRefreshRate = 60) => {
     setLastHitTime,
     gameStateRef,
     addHitEffect,
-    updateScore
+    updateScore,
+    setScore,
   };
 };
 

@@ -29,7 +29,7 @@ const RhythmVisualizer = () => {
     gameStateRef,
     addHitEffect,
     updateScore,
-    setCalibrationOffset
+    setScore,
   } = useGameState();
 
   const { audioRef, handlePlayPause } = useAudioHandler(

@@ -38,9 +38,6 @@ const GameLanes = ({ gameData, currentTime, scrollSpeed, refreshRate, calculateH
 
   return (
     <div className="relative w-full h-96 bg-gray-900 rounded-lg overflow-hidden mb-4">
-      {/* Center hit line */}
-      <div className="absolute left-0 right-0 h-1 bg-white opacity-80 z-10" style={{ top: '50%' }} />
-      
       {/* Lane grid */}
       <div className="absolute inset-0 flex">
         {Array.from({ length: LANE_COUNT }).map((_, laneIndex) => (
@@ -77,8 +74,11 @@ const GameLanes = ({ gameData, currentTime, scrollSpeed, refreshRate, calculateH
 
       {/* Beat line */}
       <div
-        className="absolute left-0 right-0 h-1 bg-white"
-        style={{ top: `${BEAT_LINE_POSITION}px` }}
+        className="absolute left-0 right-0 h-1 bg-white z-10"
+        style={{
+          top: `${BEAT_LINE_POSITION}px`,
+          boxShadow: '0 0 4px rgba(255, 255, 255, 0.8)'
+        }}
       />
 
       {/* Lane numbers */}
