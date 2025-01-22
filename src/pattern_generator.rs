@@ -163,12 +163,12 @@ impl PatternGenerator {
         // TODO: Re-enable other note types when frontend supports them
         // let difficulty = self.difficulty.calculate_difficulty();
         // let config = &self.config.difficulty;
-        // 
+        //
         // Commented out for now, only using tap notes
         // let hold_prob = config.hold_note_probability * difficulty;
         // let slide_prob = config.slide_note_probability * difficulty;
         // let multi_prob = if difficulty > 0.7 { 0.2 * difficulty } else { 0.0 };
-        
+
         Ok(NoteType::Tap)
     }
 
@@ -209,14 +209,13 @@ impl PatternGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn create_test_analysis() -> AnalysisResults {
         AnalysisResults {
             bpm: 120.0,
             confidence: 0.9,
             beat_markers: vec![],
-            onset_times: vec![0.0, 0.5, 1.0, 1.5, 2.0],
+            onset_times: unsafe { vec![0.0, 0.5, 1.0, 1.5, 2.0] },
         }
     }
 
