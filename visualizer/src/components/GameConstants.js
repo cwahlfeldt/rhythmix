@@ -16,7 +16,7 @@ export const LANE_COLORS = {
 // Visualization constants
 export const LANE_HEIGHT = 500;
 export const LANE_COUNT = 3;
-export const BEAT_LINE_POSITION = LANE_HEIGHT - 100;
+export const BEAT_LINE_POSITION = Math.floor(LANE_HEIGHT / 2); // Center of screen
 export const SPAWN_AHEAD_TIME = 3;
 export const DESPAWN_AFTER_TIME = 6;
 
