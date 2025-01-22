@@ -18,7 +18,7 @@ const Controls = ({ scrollSpeed, setScrollSpeed, isPlaying, handlePlayPause }) =
       </div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold text-white">
-          Rhythm Game Visualizer
+          Rhythmix Visualizer
         </h1>
         <button
           onClick={handlePlayPause}
