@@ -209,7 +209,7 @@ impl PatternGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    
 
     fn create_test_analysis() -> AnalysisResults {
         AnalysisResults {
