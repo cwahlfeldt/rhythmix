@@ -4,6 +4,7 @@ Cargo.lock
 .env
 .DS_Store
 *.mp3
+!test.mp3
 *.wav
 /test_files
 #test.json
