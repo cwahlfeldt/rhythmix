@@ -13,12 +13,6 @@ pub struct DifficultyConfig {
     pub max_note_interval: f64,
     /// Reference BPM for scaling calculations
     pub reference_bpm: f64,
-    /// Maximum number of simultaneous notes
-    pub max_simultaneous_notes: u8,
-    /// Probability of generating hold notes (0.0 to 1.0)
-    pub hold_note_probability: f64,
-    /// Probability of generating slide notes (0.0 to 1.0)
-    pub slide_note_probability: f64,
 }
 
 impl Default for DifficultyConfig {
@@ -28,9 +22,6 @@ impl Default for DifficultyConfig {
             min_note_interval: 0.2,
             max_note_interval: 2.0,
             reference_bpm: 120.0,
-            max_simultaneous_notes: 2,
-            hold_note_probability: 0.2,
-            slide_note_probability: 0.1,
         }
     }
 }
@@ -87,14 +78,6 @@ impl DifficultyManager {
             ));
         }
 
-        if !(0.0..=1.0).contains(&config.hold_note_probability)
-            || !(0.0..=1.0).contains(&config.slide_note_probability)
-        {
-            return Err(RhythmixError::InvalidConfig(
-                "Note type probabilities must be between 0.0 and 1.0".into(),
-            ));
-        }
-
         Ok(())
     }
 
@@ -145,18 +128,7 @@ impl DifficultyManager {
             }
         }
 
-        // Additional checks based on note type
-        match &new_note.note_type {
-            crate::pattern_types::NoteType::Multi { additional_lanes } => {
-                // Check if number of simultaneous notes exceeds maximum
-                additional_lanes.len() as u8 + 1 <= self.config.max_simultaneous_notes
-            }
-            crate::pattern_types::NoteType::Hold { duration } => {
-                // Ensure hold duration is reasonable for current difficulty
-                *duration <= self.get_max_note_interval().as_secs_f64()
-            }
-            _ => true,
-        }
+        true
     }
 
     /// Gets the recommended scroll speed based on current difficulty

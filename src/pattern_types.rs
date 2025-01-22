@@ -30,27 +30,12 @@ impl Lane {
     }
 }
 
-/// Different types of notes in the rhythm game
+/// Type of note in the rhythm game
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NoteType {
     /// Basic single-tap note
     Tap,
-    /// Note that must be held for a duration
-    Hold {
-        /// Duration to hold the note in seconds
-        duration: f64,
-    },
-    /// Note requiring a directional swipe
-    Slide {
-        /// Target lane for the slide
-        target_lane: Lane,
-    },
-    /// Multiple notes that must be hit simultaneously
-    Multi {
-        /// Additional lanes to hit
-        additional_lanes: Vec<Lane>,
-    },
 }
 
 /// A note in the rhythm game pattern
@@ -75,76 +60,9 @@ impl Note {
         }
     }
 
-    /// Creates a new hold note
-    pub fn hold(timestamp: f64, lane: Lane, duration: f64) -> Self {
-        Self {
-            timestamp,
-            note_type: NoteType::Hold { duration },
-            lane,
-        }
-    }
-
-    /// Creates a new slide note
-    pub fn slide(timestamp: f64, from_lane: Lane, to_lane: Lane) -> Self {
-        Self {
-            timestamp,
-            note_type: NoteType::Slide {
-                target_lane: to_lane,
-            },
-            lane: from_lane,
-        }
-    }
-
-    /// Creates a new multi-note
-    pub fn multi(timestamp: f64, main_lane: Lane, additional_lanes: Vec<Lane>) -> Self {
-        Self {
-            timestamp,
-            note_type: NoteType::Multi { additional_lanes },
-            lane: main_lane,
-        }
-    }
-
-    /// Get the end time of the note (relevant for hold notes)
-    pub fn end_time(&self) -> f64 {
-        match &self.note_type {
-            NoteType::Hold { duration } => self.timestamp + duration,
-            _ => self.timestamp,
-        }
-    }
-
     /// Check if this note overlaps with another note
     pub fn overlaps_with(&self, other: &Note) -> bool {
-        let (self_start, self_end) = (self.timestamp, self.end_time());
-        let (other_start, other_end) = (other.timestamp, other.end_time());
-
-        // Check if the time ranges overlap
-        if self_end < other_start || other_end < self_start {
-            return false;
-        }
-
-        // For multi notes, check if any lanes overlap
-        match (&self.note_type, &other.note_type) {
-            (
-                NoteType::Multi {
-                    additional_lanes: self_lanes,
-                },
-                NoteType::Multi {
-                    additional_lanes: other_lanes,
-                },
-            ) => {
-                let self_all_lanes: Vec<_> = std::iter::once(self.lane)
-                    .chain(self_lanes.iter().cloned())
-                    .collect();
-                let other_all_lanes: Vec<_> = std::iter::once(other.lane)
-                    .chain(other_lanes.iter().cloned())
-                    .collect();
-
-                self_all_lanes
-                    .iter()
-                    .any(|l1| other_all_lanes.iter().any(|l2| l1 == l2))
-            }
-            _ => self.lane == other.lane,
-        }
+        self.timestamp == other.timestamp && self.lane == other.lane
     }
 }
 
@@ -189,34 +107,11 @@ mod tests {
         let note1 = Note::tap(1.0, Lane::new(0, 4).unwrap());
         let note2 = Note::tap(1.0, Lane::new(0, 4).unwrap());
         let note3 = Note::tap(1.0, Lane::new(1, 4).unwrap());
-        let note4 = Note::hold(1.0, Lane::new(0, 4).unwrap(), 1.0);
-        let note5 = Note::tap(1.5, Lane::new(0, 4).unwrap());
+        let note4 = Note::tap(1.5, Lane::new(0, 4).unwrap());
 
         assert!(note1.overlaps_with(&note2)); // Same time, same lane
         assert!(!note1.overlaps_with(&note3)); // Same time, different lane
-        assert!(note4.overlaps_with(&note5)); // Hold note overlaps with tap
-    }
-
-    #[test]
-    fn test_multi_note_overlap() {
-        let note1 = Note::multi(
-            1.0,
-            Lane::new(0, 4).unwrap(),
-            vec![Lane::new(1, 4).unwrap()],
-        );
-        let note2 = Note::multi(
-            1.0,
-            Lane::new(1, 4).unwrap(),
-            vec![Lane::new(2, 4).unwrap()],
-        );
-        let note3 = Note::multi(
-            1.0,
-            Lane::new(3, 4).unwrap(),
-            vec![Lane::new(0, 4).unwrap()],
-        );
-
-        assert!(note1.overlaps_with(&note2)); // Overlapping lanes
-        assert!(note1.overlaps_with(&note3)); // Overlapping lanes through additional
+        assert!(!note1.overlaps_with(&note4)); // Different time
     }
 
     #[test]

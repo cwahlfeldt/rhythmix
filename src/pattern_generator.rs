@@ -158,54 +158,18 @@ impl PatternGenerator {
         }
     }
 
-    /// Selects a note type based on current difficulty
-    fn select_note_type(&self, lane: Lane, rng: &mut impl Rng) -> Result<NoteType> {
-        let difficulty = self.difficulty.calculate_difficulty();
-        let config = &self.config.difficulty;
-
-        // Adjust probabilities based on difficulty
-        let hold_prob = config.hold_note_probability * difficulty;
-        let slide_prob = config.slide_note_probability * difficulty;
-        let multi_prob = if difficulty > 0.7 {
-            0.2 * difficulty
-        } else {
-            0.0
-        };
-
-        let roll = rng.gen::<f64>();
-
-        Ok(if roll < hold_prob {
-            // Generate hold note
-            let duration = rng.gen_range(0.5..2.0) * difficulty;
-            NoteType::Hold { duration }
-        } else if roll < hold_prob + slide_prob {
-            // Generate slide note
-            let target_lane = loop {
-                let lane_num = rng.gen_range(0..self.config.lane_count);
-                let target = Lane::new(lane_num, self.config.lane_count)?;
-                if target != lane {
-                    break target;
-                }
-            };
-            NoteType::Slide { target_lane }
-        } else if roll < hold_prob + slide_prob + multi_prob {
-            // Generate multi note
-            let mut additional_lanes = Vec::new();
-            let max_additional = (self.config.difficulty.max_simultaneous_notes - 1) as usize;
-            let num_additional = rng.gen_range(1..=max_additional);
-
-            for _ in 0..num_additional {
-                let lane_num = rng.gen_range(0..self.config.lane_count);
-                let additional_lane = Lane::new(lane_num, self.config.lane_count)?;
-                if additional_lane != lane && !additional_lanes.contains(&additional_lane) {
-                    additional_lanes.push(additional_lane);
-                }
-            }
-            NoteType::Multi { additional_lanes }
-        } else {
-            // Default to tap note
-            NoteType::Tap
-        })
+    /// Selects a note type (temporarily only generating tap notes)
+    fn select_note_type(&self, _lane: Lane, _rng: &mut impl Rng) -> Result<NoteType> {
+        // TODO: Re-enable other note types when frontend supports them
+        // let difficulty = self.difficulty.calculate_difficulty();
+        // let config = &self.config.difficulty;
+        // 
+        // Commented out for now, only using tap notes
+        // let hold_prob = config.hold_note_probability * difficulty;
+        // let slide_prob = config.slide_note_probability * difficulty;
+        // let multi_prob = if difficulty > 0.7 { 0.2 * difficulty } else { 0.0 };
+        
+        Ok(NoteType::Tap)
     }
 
     /// Updates internal state after generating a note
