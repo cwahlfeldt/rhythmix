@@ -5,6 +5,7 @@ use crate::pattern_generator::{GeneratorConfig, PatternGenerator};
 use crate::thread_pool::ThreadPool;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::sync::Arc;
 
 /// Maximum file size (10MB)
@@ -71,6 +72,9 @@ async fn handle_analyze(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "application/json")
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        .header("Access-Control-Allow-Headers", "Content-Type")
         .body(Body::from(serde_json::to_string(&response)?))?)
 }
 
@@ -109,29 +113,52 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
     let mut file_data = None;
     let mut complexity = None;
 
-    // Simple multipart parser
-    let parts: Vec<&[u8]> = bytes
-        .split(|b| *b == b'\r' || *b == b'\n')
-        .filter(|part| !part.is_empty())
+    let full_boundary = format!("--{}", boundary);
+    let boundary_bytes = full_boundary.as_bytes();
+    let mut start_idx = 0;
+
+    // Find all boundary positions
+    let mut boundary_positions: Vec<usize> = bytes
+        .windows(boundary_bytes.len())
+        .enumerate()
+        .filter(|(_, window)| *window == boundary_bytes)
+        .map(|(i, _)| i)
         .collect();
 
-    let mut i = 0;
-    while i < parts.len() {
-        let part = parts[i];
-        if part.starts_with(b"--") && i + 3 < parts.len() {
-            let content_disposition = String::from_utf8_lossy(parts[i + 1]);
-            if content_disposition.contains("name=\"file\"") {
-                file_data = Some(parts[i + 3].to_vec());
-            } else if content_disposition.contains("name=\"complexity\"") {
-                let value = String::from_utf8_lossy(parts[i + 3]);
-                complexity = Some(value.parse::<f64>().map_err(|_| {
-                    RhythmixError::InvalidRequest("Invalid complexity value".into())
-                })?);
-                helpers::validate_pattern_config(complexity.unwrap())?;
+    // Add the final position
+    boundary_positions.push(bytes.len());
+
+    // Process each part
+    for i in 0..boundary_positions.len() - 1 {
+        let start = boundary_positions[i];
+        let end = boundary_positions[i + 1];
+        let part = &bytes[start..end];
+
+        // Find the header end (double CRLF)
+        if let Some(header_end) = find_double_crlf(part) {
+            let headers = &part[..header_end];
+            let content_start = header_end + 4; // Skip double CRLF
+            let content = &part[content_start..];
+
+            let headers_str = String::from_utf8_lossy(headers);
+            
+            if headers_str.contains("name=\"file\"") {
+                // Remove trailing CRLF if present
+                let content_len = if content.ends_with(b"\r\n") {
+                    content.len() - 2
+                } else {
+                    content.len()
+                };
+                file_data = Some(content[..content_len].to_vec());
+            } else if headers_str.contains("name=\"complexity\"") {
+                let value = String::from_utf8_lossy(content).trim().to_string();
+                if !value.is_empty() {
+                    complexity = Some(value.parse::<f64>().map_err(|_| {
+                        RhythmixError::InvalidRequest("Invalid complexity value".into())
+                    })?);
+                    helpers::validate_pattern_config(complexity.unwrap())?;
+                }
             }
-            i += 4;
-        } else {
-            i += 1;
         }
     }
 
@@ -141,25 +168,38 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
     Ok((file_data, complexity))
 }
 
+/// Find position of double CRLF in bytes
+fn find_double_crlf(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(4)
+        .position(|window| window == b"\r\n\r\n")
+}
+
 /// Processes audio data and generates pattern
 async fn process_audio(
     file_data: Vec<u8>,
     complexity: Option<f64>,
     thread_pool: Arc<ThreadPool>,
 ) -> Result<crate::types::PatternData> {
-    // Decode audio
-    let decoder = AudioDecoder::from_bytes(file_data)?;
+    // Log file data size
+    log::info!("Processing audio file of size {} bytes", file_data.len());
+
+    // Create cursor and try to decode
+    let cursor = Cursor::new(file_data);
+    let decoder = AudioDecoder::from_bytes(cursor.into_inner())?;
     let sample_rate = decoder.sample_rate();
     let mono_samples = decoder.to_mono();
 
     // Configure analysis
     let analysis_config = AnalysisConfig::default();
+    // Use clone() to keep a copy of the config
+    let chunk_size = analysis_config.onset_config.window_size;
     let mut analyzer = AudioAnalyzer::new(analysis_config, sample_rate)?;
 
-    // Process audio in chunks
-    let chunk_size = 1024;
-    for chunk in mono_samples.chunks(chunk_size) {
+    let mut start_idx = 0;
+    while start_idx + chunk_size <= mono_samples.len() {
+        let chunk = &mono_samples[start_idx..start_idx + chunk_size];
         analyzer.process_chunk(chunk)?;
+        start_idx += chunk_size;
     }
 
     // Get analysis results

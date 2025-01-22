@@ -48,25 +48,54 @@ impl AudioDecoder {
     ///
     /// # Errors
     /// Returns an error if the audio cannot be decoded
-    fn from_reader<R>(reader: R) -> Result<Self>
+    fn from_reader<R>(mut reader: R) -> Result<Self>
     where
         R: Read + Seek + Send + Sync + 'static,
     {
+        // Seek to start of file
+        reader.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
+            RhythmixError::AudioDecoding(format!("Failed to seek to start of file: {}", e))
+        })?;
+
+        // Check for minimum file size
+        let file_size = reader.seek(std::io::SeekFrom::End(0)).map_err(|e| {
+            RhythmixError::AudioDecoding(format!("Failed to get file size: {}", e))
+        })?;
+
+        if file_size < 128 { // Minimum size for MP3 header
+            return Err(RhythmixError::AudioDecoding(
+                "File too small to be valid audio".into(),
+            ));
+        }
+
+        // Seek back to start
+        reader.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
+            RhythmixError::AudioDecoding(format!("Failed to seek back to start: {}", e))
+        })?;
+
+        // Create decoder
+        log::info!("Creating decoder for file of size {} bytes", file_size);
         let decoder = Decoder::new(reader).map_err(|e| {
             RhythmixError::AudioDecoding(format!("Failed to create decoder: {}", e))
         })?;
 
+        log::info!("Decoder created successfully");
         let sample_rate = decoder.sample_rate();
         let channels = decoder.channels();
 
+        log::info!("Sample rate: {}, Channels: {}", sample_rate, channels);
+
         // Convert samples to f32 and collect them
         let samples: Vec<f32> = decoder.convert_samples().collect();
+        log::info!("Collected {} samples", samples.len());
 
         if samples.is_empty() {
             return Err(RhythmixError::AudioDecoding(
                 "No samples found in audio file".into(),
             ));
         }
+
+        log::info!("Successfully decoded audio file");
 
         Ok(Self {
             sample_rate,
