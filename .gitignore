@@ -1,1 +1,8 @@
 /target
+**/*.rs.bk
+Cargo.lock
+.env
+.DS_Store
+*.mp3
+*.wav
+/test_files

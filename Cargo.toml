@@ -2,5 +2,41 @@
 name = "rhythmix"
 version = "0.1.0"
 edition = "2021"
+description = "A high-performance audio analysis server for rhythm game pattern generation"
+authors = ["Rhythmix Team"]
+license = "MIT"
 
 [dependencies]
+# HTTP server
+hyper = { version = "0.14", features = ["full"] }
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# Audio processing
+rodio = "0.17"
+rustfft = "6.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async utilities
+futures = "0.3"
+bytes = "1.0"
+
+# Error handling
+thiserror = "1.0"
+
+# Thread pool and concurrency
+crossbeam = "0.8"
+crossbeam-channel = "0.5"
+
+# Random number generation
+rand = "0.8"
+
+# Logging and configuration
+env_logger = "0.10"
+log = "0.4"
+
+[dev-dependencies]
+tokio-test = "0.4"
