@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 const RhythmVisualizer = () => {
   const [gameData, setGameData] = useState(null);
@@ -12,9 +12,15 @@ const RhythmVisualizer = () => {
   const LANE_HEIGHT = 500;
   const LANE_COUNT = 3; // Number of lanes
   const BEAT_LINE_POSITION = LANE_HEIGHT - 100; // Position from top where beats should be hit
-  const SPAWN_AHEAD_TIME = 300; // How many seconds ahead to spawn notes
-  const DESPAWN_AFTER_TIME = 300; // How many seconds after beat line to keep notes
-  const NOTE_SPEED = (175 / 60) * 100; // Pixels per second
+  const SPAWN_AHEAD_TIME = 3; // How many seconds ahead to spawn notes
+  const DESPAWN_AFTER_TIME = 6; // How many seconds after beat line to keep notes
+  // How much screen space between consecutive beats (at current BPM)
+  const pixelsBetweenBeats = 84; // Visual distance between beats in pixels
+  const NOTE_SPEED = useMemo(() => {
+    const bpm = gameData?.metadata?.bpm || 175;
+    // Convert BPM to pixels/second: (beats/min) * (pixels/beat) / (sec/min)
+    return pixelsBetweenBeats * (bpm / 60);
+  }, [gameData?.metadata?.bpm]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -132,16 +138,15 @@ const RhythmVisualizer = () => {
                 className="flex-1 border-r border-gray-700 relative"
               >
                 {/* Beat markers for this lane */}
-                {visibleBeatMarkers
-                  .filter((_, index) => index % LANE_COUNT === laneIndex)
-                  .map((beat) => (
+                {gameData?.notes
+                  ?.filter((note) => note.lane === laneIndex)
+                  ?.map((note) => (
                     <div
-                      key={beat.timestamp}
-                      className={`absolute left-1 right-1 h-4 rounded ${
-                        beat.is_strong_beat ? "bg-red-500" : "bg-blue-500"
-                      } opacity-80`}
+                      key={`${note.timestamp}-${note.lane}`}
+                      className={`absolute left-1 right-1 h-4 rounded ${note.type === "tap" ? "bg-blue-500" : "bg-yellow-500"
+                        } opacity-80 transition-transform duration-100`}
                       style={{
-                        top: `${calculateBeatPosition(beat.timestamp)}px`,
+                        top: `${calculateBeatPosition(note.timestamp)}px`,
                       }}
                     />
                   ))}
