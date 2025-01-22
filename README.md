@@ -1,6 +1,9 @@
 # Rhythmix
 
-A high-performance audio analysis server that transforms audio files into rhythm game pattern data. Built with Rust for maximum performance and accuracy.
+![Rhythmix Visualizer](screenshot.png)
+*visualizer feature*
+
+A high-performance audio analysis server that transforms audio files into rhythm game pattern data, complete with a real-time visualization tool. Built with Rust for maximum performance and accuracy.
 
 ## Overview
 
@@ -128,6 +131,15 @@ Key responsibilities:
 }
 ```
 
+## Visualizer
+
+The built-in web-based visualizer allows you to preview and test generated rhythm patterns in real-time. Features include:
+- Three-lane rhythm game layout with smooth note animations
+- Real-time hit detection and scoring
+- Visual feedback for timing accuracy (Perfect/Great/Good/Miss)
+- Adjustable scroll speed
+- Support for keyboard input (A/S/D or J/K/L)
+
 Note types and gameplay elements:
 - `tap`: Basic single-click note
 - `hold`: Must be pressed and held for duration
@@ -172,8 +184,7 @@ The server will start on `localhost:3000` by default.
 
 ```bash
 curl -X POST http://localhost:3000/analyze \
-  -F "file=@song.mp3" \
-  -F "complexity=0.8"
+  -F "file=@song.mp3"
 ```
 
 Parameters:
