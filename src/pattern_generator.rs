@@ -52,33 +52,13 @@ impl PatternGenerator {
     /// # Arguments
     /// * `analysis` - Results from audio analysis
     pub fn generate_pattern(&mut self, analysis: &AnalysisResults) -> Result<PatternData> {
-        let mut notes = Vec::new();
-        let mut rng = thread_rng();
-
-        // Create a note for each beat marker
-        for beat_marker in &analysis.beat_markers {
-            // Generate a random lane for the note
-            let lane_num = rng.gen_range(0..self.config.lane_count);
-            let lane = Lane::new(lane_num, self.config.lane_count)?;
-
-            // Create a note at the beat marker's timestamp
-            let note = Note {
-                timestamp: beat_marker.timestamp,
-                note_type: NoteType::Tap,
-                lane,
-            };
-
-            notes.push(note);
-        }
+        // Use the notes directly from analysis
+        let notes = analysis.notes.clone();
 
         // Create a simple section for the whole song
         let sections = vec![PatternSection {
             start_time: 0.0,
-            end_time: analysis
-                .beat_markers
-                .last()
-                .map(|m| m.timestamp)
-                .unwrap_or(0.0),
+            end_time: analysis.notes.last().map(|m| m.timestamp).unwrap_or(0.0),
             section_type: "main".to_string(),
             intensity: 0.8,
         }];
@@ -92,7 +72,6 @@ impl PatternGenerator {
             },
             notes,
             sections,
-            beat_markers: analysis.beat_markers.clone(),
         })
     }
 }
@@ -105,7 +84,7 @@ mod tests {
         AnalysisResults {
             bpm: 120.0,
             confidence: 0.9,
-            beat_markers: vec![],
+            notes: vec![],
             onset_times: unsafe { vec![0.0, 0.5, 1.0, 1.5, 2.0] },
         }
     }

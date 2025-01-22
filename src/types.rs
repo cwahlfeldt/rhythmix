@@ -29,5 +29,4 @@ pub struct PatternData {
     pub metadata: PatternMetadata,
     pub notes: Vec<Note>,
     pub sections: Vec<Section>,
-    pub beat_markers: Vec<BeatMarker>,
 }

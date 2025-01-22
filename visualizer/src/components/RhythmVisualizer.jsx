@@ -1,174 +1,147 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
+import { TIMING_WINDOWS, KEY_TO_LANE } from './GameConstants';
+import useGameState from './hooks/useGameState';
+import useAudioHandler from './hooks/useAudioHandler';
+import Controls from './Controls';
+import GameLanes from './GameLanes';
+import HitEffects from './HitEffects';
+import ScoreBoard from './ScoreBoard';
+import GameStats from './GameStats';
 
 const RhythmVisualizer = () => {
-  const [gameData, setGameData] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const audioRef = useRef(null);
-  const animationFrameRef = useRef(null);
-  const [visibleBeatMarkers, setVisibleBeatMarkers] = useState([]);
+  // Initialize game state and audio handler
+  const {
+    gameData,
+    isPlaying,
+    setIsPlaying,
+    currentTime,
+    setCurrentTime,
+    scrollSpeed,
+    setScrollSpeed,
+    refreshRate,
+    hitEffects,
+    calibrationOffset,
+    hitNotes,
+    setHitNotes,
+    score,
+    lastHitTime,
+    setLastHitTime,
+    gameStateRef,
+    addHitEffect,
+    updateScore,
+    setCalibrationOffset
+  } = useGameState();
 
-  // Constants for visualization
-  const LANE_HEIGHT = 500;
-  const LANE_COUNT = 3; // Number of lanes
-  const BEAT_LINE_POSITION = LANE_HEIGHT - 100; // Position from top where beats should be hit
-  const SPAWN_AHEAD_TIME = 3; // How many seconds ahead to spawn notes
-  const DESPAWN_AFTER_TIME = 6; // How many seconds after beat line to keep notes
-  // How much screen space between consecutive beats (at current BPM)
-  const pixelsBetweenBeats = 84; // Visual distance between beats in pixels
-  const NOTE_SPEED = useMemo(() => {
-    const bpm = gameData?.metadata?.bpm || 175;
-    // Convert BPM to pixels/second: (beats/min) * (pixels/beat) / (sec/min)
-    return pixelsBetweenBeats * (bpm / 60);
-  }, [gameData?.metadata?.bpm]);
+  const { audioRef, handlePlayPause } = useAudioHandler(
+    isPlaying,
+    setIsPlaying,
+    calibrationOffset,
+    refreshRate,
+    gameData,
+    gameStateRef,
+    setCurrentTime
+  );
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const response = await fetch("/test.json");
-        const parsedData = await response.json();
+  // Calculate hit timing window for visual feedback
+  const calculateHitWindow = useCallback((timestamp) => {
+    const timeDiff = Math.abs(timestamp - currentTime);
+    if (timeDiff <= TIMING_WINDOWS.PERFECT) return 'perfect';
+    if (timeDiff <= TIMING_WINDOWS.GREAT) return 'great';
+    if (timeDiff <= TIMING_WINDOWS.GOOD) return 'good';
+    return 'miss';
+  }, [currentTime]);
 
-        if (parsedData.success && parsedData.data) {
-          setGameData(parsedData.data);
-          console.log("Loaded beat data:", parsedData.data);
-        }
-      } catch (error) {
-        console.error("Error loading data:", error);
+  // Handle keyboard input for note hits
+  const handleKeyPress = useCallback((event) => {
+    if (!isPlaying || !gameData?.notes) return;
+
+    // Debounce key presses to prevent double hits
+    const now = performance.now();
+    if (now - lastHitTime < 50) return; // 50ms debounce
+
+    const lane = KEY_TO_LANE[event.key.toLowerCase()];
+    if (lane === undefined) return;
+
+    setLastHitTime(now);
+
+    const currentAudioTime = audioRef.current?.currentTime || 0;
+    const compensatedTime = currentAudioTime + calibrationOffset;
+
+    // Find the closest note in the lane within the hit window
+    const availableNotes = gameData.notes
+      .filter(note =>
+        note.lane === lane &&
+        !hitNotes.has(`${note.timestamp}-${note.lane}`) &&
+        Math.abs(note.timestamp - compensatedTime) <= TIMING_WINDOWS.GOOD
+      )
+      .sort((a, b) =>
+        Math.abs(a.timestamp - compensatedTime) - Math.abs(b.timestamp - compensatedTime)
+      );
+
+    if (availableNotes.length > 0) {
+      const closestNote = availableNotes[0];
+      const hitAccuracy = calculateHitWindow(closestNote.timestamp);
+
+      if (hitAccuracy !== 'miss') {
+        // Mark note as hit and update score
+        const noteKey = `${closestNote.timestamp}-${closestNote.lane}`;
+        setHitNotes(prev => new Set([...prev, noteKey]));
+        updateScore(hitAccuracy);
+        addHitEffect(hitAccuracy, lane);
       }
-    };
-    loadData();
-  }, []);
-
-  // Keep track of game state
-  const gameStateRef = useRef({
-    lastFrameTime: 0,
-    lastCurrentTime: 0,
-  });
-
-  useEffect(() => {
-    const updateGame = (timestamp) => {
-      if (!gameData || !gameData.beat_markers) return;
-
-      // const deltaTime = (timestamp - gameStateRef.current.lastFrameTime) / 1000;
-      gameStateRef.current.lastFrameTime = timestamp;
-
-      if (isPlaying && audioRef.current) {
-        const audioTime = audioRef.current.currentTime;
-
-        // Only update time if it has changed significantly
-        if (Math.abs(audioTime - gameStateRef.current.lastCurrentTime) > 0.01) {
-          setCurrentTime(audioTime);
-          gameStateRef.current.lastCurrentTime = audioTime;
-        }
-
-        const currentBeats = gameData.beat_markers.filter(
-          (beat) =>
-            beat.timestamp >= audioTime - DESPAWN_AFTER_TIME &&
-            beat.timestamp <= audioTime + SPAWN_AHEAD_TIME,
-        );
-
-        // Only update if we have different beats
-        if (
-          currentBeats.length !== visibleBeatMarkers.length ||
-          currentBeats.some((beat, i) => beat !== visibleBeatMarkers[i])
-        ) {
-          setVisibleBeatMarkers(currentBeats);
-        }
-      }
-
-      if (isPlaying) {
-        animationFrameRef.current = requestAnimationFrame(updateGame);
-      }
-    };
-
-    if (isPlaying) {
-      animationFrameRef.current = requestAnimationFrame(updateGame);
     }
+  }, [isPlaying, gameData, calibrationOffset, hitNotes, lastHitTime, calculateHitWindow, addHitEffect, updateScore, audioRef]);
 
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+  // Add keyboard event listener
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [handleKeyPress]);
+
+  // Auto-miss tracking for notes that pass the hit line
+  useEffect(() => {
+    if (!isPlaying || !gameData?.notes) return;
+
+    const checkMissedNotes = () => {
+      const currentAudioTime = audioRef.current?.currentTime || 0;
+      const compensatedTime = currentAudioTime + calibrationOffset;
+
+      gameData.notes.forEach(note => {
+        const noteKey = `${note.timestamp}-${note.lane}`;
+        if (!hitNotes.has(noteKey) && (note.timestamp + TIMING_WINDOWS.GOOD) < compensatedTime) {
+          setHitNotes(prev => new Set([...prev, noteKey]));
+          setScore(prev => ({
+            ...prev,
+            miss: prev.miss + 1
+          }));
+
+        }
+      });
     };
-  }, [isPlaying, gameData]);
 
-  const handlePlayPause = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
+    const missCheckInterval = setInterval(checkMissedNotes, 100);
+    return () => clearInterval(missCheckInterval);
+  }, [isPlaying, gameData, hitNotes, calibrationOffset]);
 
-  const calculateBeatPosition = (timestamp) => {
-    // Time difference between current time and when this beat should be hit
-    const timeOffset = timestamp - currentTime;
 
-    // Convert time difference to pixels based on speed
-    const position = timeOffset * NOTE_SPEED;
-
-    // Position relative to beat line
-    return BEAT_LINE_POSITION - position;
-  };
-
+  // Screen refresh rate detection
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
-      <div className="bg-gray-800 rounded-lg p-4 shadow-lg">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-2xl font-bold text-white">
-            Rhythm Game Visualizer
-          </h1>
-          <button
-            onClick={handlePlayPause}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-          >
-            {isPlaying ? "Pause" : "Play"}
-          </button>
-        </div>
+      <div className="bg-gray-800 rounded-lg p-4 shadow-lg relative">
+        <Controls
+          scrollSpeed={scrollSpeed}
+          setScrollSpeed={setScrollSpeed}
+          isPlaying={isPlaying}
+          handlePlayPause={handlePlayPause}
+        />
 
-        <div className="relative w-full h-96 bg-gray-900 rounded-lg overflow-hidden mb-4">
-          {/* Lane grid */}
-          <div className="absolute inset-0 flex">
-            {Array.from({ length: LANE_COUNT }).map((_, laneIndex) => (
-              <div
-                key={laneIndex}
-                className="flex-1 border-r border-gray-700 relative"
-              >
-                {/* Beat markers for this lane */}
-                {gameData?.notes
-                  ?.filter((note) => note.lane === laneIndex)
-                  ?.map((note) => (
-                    <div
-                      key={`${note.timestamp}-${note.lane}`}
-                      className={`absolute left-1 right-1 h-4 rounded ${note.type === "tap" ? "bg-blue-500" : "bg-yellow-500"
-                        } opacity-80 transition-transform duration-100`}
-                      style={{
-                        top: `${calculateBeatPosition(note.timestamp)}px`,
-                      }}
-                    />
-                  ))}
-              </div>
-            ))}
-          </div>
-
-          {/* Beat line */}
-          <div
-            className="absolute left-0 right-0 h-1 bg-white"
-            style={{ top: `${BEAT_LINE_POSITION}px` }}
-          />
-
-          {/* Lane numbers */}
-          <div className="absolute bottom-0 left-0 right-0 flex text-white text-opacity-50">
-            {Array.from({ length: LANE_COUNT }).map((_, index) => (
-              <div key={index} className="flex-1 text-center pb-1">
-                {index + 1}
-              </div>
-            ))}
-          </div>
-        </div>
+        <GameLanes
+          gameData={gameData}
+          currentTime={currentTime}
+          scrollSpeed={scrollSpeed}
+          refreshRate={refreshRate}
+          calculateHitWindow={calculateHitWindow}
+        />
 
         <audio
           ref={audioRef}
@@ -177,13 +150,22 @@ const RhythmVisualizer = () => {
           onEnded={() => setIsPlaying(false)}
         />
 
-        {gameData && (
-          <div className="text-sm text-gray-300 space-y-1">
-            <p>Time: {currentTime.toFixed(2)}s</p>
-            <p>Visible Beats: {visibleBeatMarkers.length}</p>
-            <p>Total Beats: {gameData.beat_markers.length}</p>
-          </div>
-        )}
+        <HitEffects hitEffects={hitEffects} />
+
+        <GameStats
+          gameData={gameData}
+          currentTime={currentTime}
+          scrollSpeed={scrollSpeed}
+          refreshRate={refreshRate}
+          calibrationOffset={calibrationOffset}
+        />
+
+        <ScoreBoard score={score} />
+
+        {/* Control instructions */}
+        <div className="mt-4 text-center text-gray-400 text-sm">
+          <p>Controls: A/J = Lane 1, S/K = Lane 2, D/L = Lane 3</p>
+        </div>
       </div>
     </div>
   );

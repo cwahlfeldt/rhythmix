@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::onset_detector::{OnsetConfig, OnsetDetector};
-use crate::types::BeatMarker;
+use crate::pattern_types::{Lane, Note, NoteType};
+use rand::{thread_rng, Rng};
 use std::collections::VecDeque;
 
 /// Configuration for audio analysis
@@ -34,8 +35,8 @@ pub struct AnalysisResults {
     pub bpm: f64,
     /// Confidence in the tempo detection (0.0 to 1.0)
     pub confidence: f64,
-    /// Beat markers for visualization
-    pub beat_markers: Vec<BeatMarker>,
+    /// Generated notes (replacing beat markers)
+    pub notes: Vec<Note>,
     /// Onset times in seconds
     pub onset_times: Vec<f64>,
 }
@@ -100,12 +101,12 @@ impl AudioAnalyzer {
     /// Get the analysis results
     pub fn get_results(&self) -> AnalysisResults {
         let (bpm, confidence) = self.estimate_tempo();
-        let beat_markers = self.generate_beat_markers(bpm);
+        let notes = self.generate_notes(bpm);
 
         AnalysisResults {
             bpm,
             confidence,
-            beat_markers,
+            notes,
             onset_times: self.onset_times.clone(),
         }
     }
@@ -166,29 +167,36 @@ impl AudioAnalyzer {
         (bpm, confidence)
     }
 
-    /// Generate beat markers based on detected tempo
-    fn generate_beat_markers(&self, bpm: f64) -> Vec<BeatMarker> {
+    /// Generate notes based on detected tempo
+    fn generate_notes(&self, bpm: f64) -> Vec<Note> {
         if self.onset_times.is_empty() {
             return Vec::new();
         }
 
+        let mut notes = Vec::new();
+        let mut rng = thread_rng();
         let beat_interval = 60.0 / bpm;
-        let mut markers = Vec::new();
         let mut current_beat = 0;
         let mut current_time = self.onset_times[0];
         let end_time = *self.onset_times.last().unwrap();
 
         while current_time <= end_time {
-            markers.push(BeatMarker {
+            // Generate a random lane for the note
+            let lane_num = rng.gen_range(0..=2); // Hardcoded 3 lanes for now
+            let lane = Lane::new(lane_num, 3).unwrap();
+
+            // Create note at the exact beat time
+            notes.push(Note {
                 timestamp: current_time,
-                is_strong_beat: current_beat % 4 == 0,
+                note_type: NoteType::Tap,
+                lane,
             });
 
             current_beat += 1;
             current_time += beat_interval;
         }
 
-        markers
+        notes
     }
 }
 
@@ -240,25 +248,26 @@ mod tests {
         // Check if detected BPM is within 5% of actual BPM
         assert!((results.bpm - test_bpm).abs() < test_bpm * 0.05);
         assert!(results.confidence > 0.0);
-        assert!(!results.beat_markers.is_empty());
+        assert!(!results.notes.is_empty());
     }
 
     #[test]
-    fn test_beat_marker_generation() {
+    fn test_note_generation() {
         let sample_rate = 44100;
         let analyzer = AudioAnalyzer::new(AnalysisConfig::default(), sample_rate).unwrap();
 
-        let markers = analyzer.generate_beat_markers(120.0);
-        assert!(markers.is_empty()); // No onsets, should be empty
+        let notes = analyzer.generate_notes(120.0);
+        assert!(notes.is_empty()); // No onsets, should be empty
 
         let mut analyzer_with_onsets = analyzer;
         analyzer_with_onsets.onset_times = unsafe { vec![0.0, 0.5, 1.0, 1.5, 2.0] };
 
-        let markers = analyzer_with_onsets.generate_beat_markers(120.0);
-        assert!(!markers.is_empty());
+        let notes = analyzer_with_onsets.generate_notes(120.0);
+        assert!(!notes.is_empty());
 
-        // Check if strong beats are correctly marked
-        let strong_beats: Vec<_> = markers.iter().filter(|m| m.is_strong_beat).collect();
-        assert!(!strong_beats.is_empty());
+        // Check timestamps are sequential
+        for i in 1..notes.len() {
+            assert!(notes[i].timestamp > notes[i - 1].timestamp);
+        }
     }
 }
