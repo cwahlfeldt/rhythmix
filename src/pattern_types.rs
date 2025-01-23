@@ -66,6 +66,18 @@ impl Note {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub enum SectionType {
+    Intro,
+    Verse,
+    Chorus,
+    Break,
+    CutOut,
+    PreChorus,
+    Outro,
+    Bridge,
+}
+
 /// A pattern section with specific characteristics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternSection {
@@ -74,7 +86,7 @@ pub struct PatternSection {
     /// End time of the section in seconds
     pub end_time: f64,
     /// Type of section (verse, chorus, etc.)
-    pub section_type: String,
+    pub section_type: SectionType,
     /// Intensity factor affecting pattern density (0.0 to 1.0)
     pub intensity: f64,
 }
@@ -119,7 +131,7 @@ mod tests {
         let section = PatternSection {
             start_time: 1.0,
             end_time: 4.0,
-            section_type: "verse".to_string(),
+            section_type: SectionType::Verse,
             intensity: 0.8,
         };
 

@@ -1,7 +1,7 @@
 use crate::audio_analyzer::AnalysisResults;
 use crate::difficulty::{DifficultyConfig, DifficultyManager};
 use crate::error::Result;
-use crate::pattern_types::{Lane, Note, NoteType, PatternSection};
+use crate::pattern_types::{Lane, Note, NoteType, PatternSection, SectionType};
 use crate::types::{PatternData, PatternMetadata};
 use rand::{thread_rng, Rng};
 use std::time::Duration;
@@ -59,7 +59,7 @@ impl PatternGenerator {
         let sections = vec![PatternSection {
             start_time: 0.0,
             end_time: analysis.notes.last().map(|m| m.timestamp).unwrap_or(0.0),
-            section_type: "main".to_string(),
+            section_type: SectionType::Intro,
             intensity: 0.8,
         }];
 

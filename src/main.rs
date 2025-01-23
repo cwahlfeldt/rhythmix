@@ -7,6 +7,7 @@ mod handlers;
 mod onset_detector;
 mod pattern_generator;
 mod pattern_types;
+mod section_detector;
 mod server;
 mod thread_pool;
 mod types;
