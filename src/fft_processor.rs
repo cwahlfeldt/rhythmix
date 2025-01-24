@@ -37,17 +37,17 @@ impl FftProcessor {
         })
     }
 
-    /// Process a chunk of audio samples using FFT
+    /// Process a chunk of audio samples using FFT, returning magnitudes and phases
     ///
     /// # Arguments
     /// * `samples` - Audio samples to process
     ///
     /// # Returns
-    /// Vector of frequency magnitudes
+    /// Tuple of (magnitudes, phases) vectors
     ///
     /// # Errors
     /// Returns an error if the input length doesn't match the window size
-    pub fn process(&self, samples: &[f32]) -> Result<Vec<f32>> {
+    pub fn process_with_phases(&self, samples: &[f32]) -> Result<(Vec<f32>, Vec<f32>)> {
         if samples.len() != self.window_size {
             return Err(RhythmixError::FftProcessing(format!(
                 "Input length {} does not match window size {}",
@@ -66,13 +66,31 @@ impl FftProcessor {
         // Perform FFT
         self.fft.process(&mut buffer);
 
-        // Calculate magnitudes (only up to Nyquist frequency)
-        let magnitudes: Vec<f32> = buffer[..=self.window_size / 2]
-            .iter()
-            .map(|c| (c.norm() / self.window_size as f32).sqrt())
-            .collect();
+        // Calculate magnitudes and phases (only up to Nyquist frequency)
+        let nyquist_buffer = &buffer[..=self.window_size / 2];
+        let mut magnitudes = Vec::with_capacity(nyquist_buffer.len());
+        let mut phases = Vec::with_capacity(nyquist_buffer.len());
 
-        Ok(magnitudes)
+        for c in nyquist_buffer {
+            magnitudes.push((c.norm() / self.window_size as f32).sqrt());
+            phases.push(c.im.atan2(c.re));
+        }
+
+        Ok((magnitudes, phases))
+    }
+
+    /// Process a chunk of audio samples using FFT
+    ///
+    /// # Arguments
+    /// * `samples` - Audio samples to process
+    ///
+    /// # Returns
+    /// Vector of frequency magnitudes
+    ///
+    /// # Errors
+    /// Returns an error if the input length doesn't match the window size
+    pub fn process(&self, samples: &[f32]) -> Result<Vec<f32>> {
+        Ok(self.process_with_phases(samples)?.0)
     }
 
     /// Get the frequency resolution of the FFT

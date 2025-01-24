@@ -48,15 +48,23 @@ pub struct Note {
     pub note_type: NoteType,
     /// Lane position
     pub lane: Lane,
+    /// Note intensity for visual effects (0.0 to 1.0)
+    #[serde(default = "default_intensity")]
+    pub intensity: f64,
+}
+
+fn default_intensity() -> f64 {
+    0.8
 }
 
 impl Note {
     /// Creates a new tap note
-    pub fn tap(timestamp: f64, lane: Lane) -> Self {
+    pub fn tap(timestamp: f64, lane: Lane, intensity: f64) -> Self {
         Self {
             timestamp,
             note_type: NoteType::Tap,
             lane,
+            intensity,
         }
     }
 

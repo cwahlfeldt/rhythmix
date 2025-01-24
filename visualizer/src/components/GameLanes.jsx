@@ -22,7 +22,7 @@ const GameLanes = ({ gameData, currentTime, scrollSpeed, refreshRate, calculateH
     return baseSpeed * (60 / refreshRate);
   }, [gameData?.metadata?.bpm, pixelsBetweenBeats, refreshRate]);
 
-  const calculateBeatPosition = (timestamp, currentTime, interpolationFactor = 0) => {
+  const calculateBeatPosition = (timestamp, currentTime, interpolationFactor = 2) => {
     // Calculate precise time difference with interpolation
     const timeOffset = (timestamp - currentTime) + (interpolationFactor / refreshRate);
 

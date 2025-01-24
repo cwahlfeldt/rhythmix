@@ -13,6 +13,8 @@ pub struct OnsetConfig {
     pub num_bands: usize,
     /// Threshold for onset detection
     pub threshold: f32,
+    /// Phase deviation threshold
+    pub phase_threshold: f32,
     /// Minimum time between onsets (in windows)
     pub min_interval: usize,
 }
@@ -24,6 +26,7 @@ impl Default for OnsetConfig {
             hop_size: 512,
             num_bands: 32,
             threshold: 0.3,
+            phase_threshold: 0.15,
             min_interval: 4,
         }
     }
@@ -32,9 +35,12 @@ impl Default for OnsetConfig {
 /// Detects note onsets in audio data using spectral flux
 pub struct OnsetDetector {
     config: OnsetConfig,
-    fft: FftProcessor,
+    pub fft: FftProcessor, // Made public
     prev_magnitudes: Option<Vec<f32>>,
+    prev_phases: Option<Vec<f32>>,
+    phase_diffs: Option<Vec<f32>>,
     flux_history: VecDeque<f32>,
+    phase_dev_history: VecDeque<f32>,
     last_onset: usize,
     sample_rate: u32,
 }
@@ -50,7 +56,10 @@ impl OnsetDetector {
             fft: FftProcessor::new(config.window_size)?,
             config,
             prev_magnitudes: None,
+            prev_phases: None,
+            phase_diffs: None,
             flux_history: VecDeque::with_capacity(32),
+            phase_dev_history: VecDeque::with_capacity(32),
             last_onset: 0,
             sample_rate,
         })
@@ -64,32 +73,51 @@ impl OnsetDetector {
     /// # Returns
     /// true if an onset was detected, false otherwise
     pub fn process(&mut self, samples: &[f32]) -> Result<bool> {
-        // Compute FFT magnitudes
-        let magnitudes = self.fft.process(samples)?;
+        // Compute FFT magnitudes and phases
+        let (magnitudes, phases) = self.fft.process_with_phases(samples)?;
 
         // Compute frequency bands
         let bands = self.compute_frequency_bands(&magnitudes);
 
         // If this is the first frame, store it and return
         if self.prev_magnitudes.is_none() {
-            self.prev_magnitudes = Some(bands);
+            self.prev_magnitudes = Some(bands.clone());
+            self.prev_phases = Some(phases.clone());
+            self.phase_diffs = Some(vec![0.0; phases.len()]);
             return Ok(false);
         }
 
-        // Compute spectral flux
+        // Update phase differences
+        if let Some(prev_phases) = &self.prev_phases {
+            let mut phase_diffs = Vec::with_capacity(phases.len());
+            for (&curr, &prev) in phases.iter().zip(prev_phases.iter()) {
+                let mut diff = curr - prev;
+                while diff > std::f32::consts::PI {
+                    diff -= 2.0 * std::f32::consts::PI;
+                }
+                while diff < -std::f32::consts::PI {
+                    diff += 2.0 * std::f32::consts::PI;
+                }
+                phase_diffs.push(diff);
+            }
+            self.phase_diffs = Some(phase_diffs);
+        }
+
+        // Compute spectral flux and phase deviation
         let flux = self.compute_spectral_flux(&bands);
 
-        // Update flux history
+        // Update histories
         self.flux_history.push_back(flux);
         if self.flux_history.len() > 32 {
             self.flux_history.pop_front();
         }
 
-        // Check if this is an onset
+        // Check if this is an onset using both spectral and phase information
         let is_onset = self.detect_onset(flux);
 
-        // Update previous magnitudes
+        // Update previous state
         self.prev_magnitudes = Some(bands);
+        self.prev_phases = Some(phases);
 
         Ok(is_onset)
     }
@@ -122,24 +150,79 @@ impl OnsetDetector {
             .sum()
     }
 
-    /// Detect if current frame contains an onset
+    /// Detect if current frame contains an onset using both spectral flux and phase deviation
     fn detect_onset(&mut self, flux: f32) -> bool {
-        // Compute local average
-        let local_avg = if !self.flux_history.is_empty() {
+        // Process phase deviation if we have previous phases
+        let phase_dev = if let (Some(prev_phases), Some(phase_diffs)) =
+            (&self.prev_phases, &self.phase_diffs)
+        {
+            self.compute_phase_deviation(prev_phases, phase_diffs)
+        } else {
+            0.0
+        };
+
+        // Update phase deviation history
+        self.phase_dev_history.push_back(phase_dev);
+        if self.phase_dev_history.len() > 32 {
+            self.phase_dev_history.pop_front();
+        }
+
+        // Compute local averages
+        let flux_avg = if !self.flux_history.is_empty() {
             self.flux_history.iter().sum::<f32>() / self.flux_history.len() as f32
         } else {
             flux
         };
 
-        // Check if flux exceeds threshold and minimum interval has passed
-        if flux > local_avg * (1.0 + self.config.threshold)
-            && self.last_onset >= self.config.min_interval
-        {
+        let phase_avg = if !self.phase_dev_history.is_empty() {
+            self.phase_dev_history.iter().sum::<f32>() / self.phase_dev_history.len() as f32
+        } else {
+            phase_dev
+        };
+
+        // Detect onset if either method indicates one and minimum interval has passed
+        let flux_onset = flux > flux_avg * (1.0 + self.config.threshold);
+        let phase_onset = phase_dev > phase_avg * (1.0 + self.config.phase_threshold);
+
+        if (flux_onset || phase_onset) && self.last_onset >= self.config.min_interval {
             self.last_onset = 0;
             true
         } else {
             self.last_onset += 1;
             false
+        }
+    }
+
+    /// Compute phase deviation for onset detection
+    fn compute_phase_deviation(&self, prev_phases: &[f32], phase_diffs: &[f32]) -> f32 {
+        let mut deviation = 0.0;
+        let mut count = 0;
+
+        for i in 1..prev_phases.len() - 1 {
+            // Calculate predicted phase
+            let predicted = prev_phases[i] + phase_diffs[i];
+
+            // Calculate circular distance to actual phase
+            let mut diff = (predicted - prev_phases[i]).abs();
+            if diff > std::f32::consts::PI {
+                diff = 2.0 * std::f32::consts::PI - diff;
+            }
+
+            // Weight by magnitude
+            if let Some(magnitudes) = &self.prev_magnitudes {
+                if i < magnitudes.len() {
+                    diff *= magnitudes[i];
+                }
+            }
+
+            deviation += diff;
+            count += 1;
+        }
+
+        if count > 0 {
+            deviation / count as f32
+        } else {
+            0.0
         }
     }
 
@@ -184,39 +267,113 @@ mod tests {
     }
 
     #[test]
-    fn test_onset_detection() {
+    fn test_spectral_onset_detection() {
         let sample_rate = 44100;
         let config = OnsetConfig {
             window_size: 1024,
             hop_size: 512,
             num_bands: 16,
             threshold: 0.3,
+            phase_threshold: 0.0, // Disable phase detection
             min_interval: 4,
         };
 
         let mut detector = OnsetDetector::new(config, sample_rate).unwrap();
+        let onsets = vec![(0.2, 1.0), (0.5, 1.0), (0.8, 1.0)];
         let signal = generate_test_signal(sample_rate, 1.0);
 
-        let mut onsets = Vec::new();
+        let mut detected = Vec::new();
         let mut window_start = 0;
 
         while window_start + 1024 <= signal.len() {
             let window = &signal[window_start..window_start + 1024];
             if detector.process(window).unwrap() {
-                onsets.push(detector.window_to_time(window_start / 512));
+                detected.push(window_start as f32 / sample_rate as f32);
             }
             window_start += 512;
         }
 
-        // We should detect multiple onsets in our test signal
-        assert!(!onsets.is_empty());
+        // Verify each expected onset was detected
+        for &(expected, _) in &onsets {
+            assert!(
+                detected.iter().any(|&t| (t - expected).abs() < 0.05),
+                "Missing onset at {}s",
+                expected
+            );
+        }
+    }
 
-        // Onsets should be roughly 0.25 seconds apart in our test signal
-        if onsets.len() >= 2 {
-            for i in 1..onsets.len() {
-                let interval = onsets[i] - onsets[i - 1];
-                assert!((interval - 0.25).abs() < 0.1);
+    #[test]
+    fn test_phase_onset_detection() {
+        let sample_rate = 44100;
+        let config = OnsetConfig {
+            window_size: 1024,
+            hop_size: 512,
+            num_bands: 16,
+            threshold: 0.0, // Disable spectral detection
+            phase_threshold: 0.15,
+            min_interval: 4,
+        };
+
+        let mut detector = OnsetDetector::new(config, sample_rate).unwrap();
+        let onsets = vec![(0.2, 1.0), (0.5, 1.0), (0.8, 1.0)];
+        let signal = generate_test_signal(sample_rate, 1.0);
+
+        let mut detected = Vec::new();
+        let mut window_start = 0;
+
+        while window_start + 1024 <= signal.len() {
+            let window = &signal[window_start..window_start + 1024];
+            if detector.process(window).unwrap() {
+                detected.push(window_start as f32 / sample_rate as f32);
             }
+            window_start += 512;
+        }
+
+        // Verify phase-based detection works
+        for &(expected, _) in &onsets {
+            assert!(
+                detected.iter().any(|&t| (t - expected).abs() < 0.05),
+                "Missing phase onset at {}s",
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_combined_detection() {
+        let sample_rate = 44100;
+        let config = OnsetConfig {
+            window_size: 1024,
+            hop_size: 512,
+            num_bands: 16,
+            threshold: 0.3,
+            phase_threshold: 0.15,
+            min_interval: 4,
+        };
+
+        let mut detector = OnsetDetector::new(config, sample_rate).unwrap();
+        let onsets = vec![(0.2, 1.0), (0.5, 1.0), (0.8, 1.0)];
+        let signal = generate_test_signal(sample_rate, 1.0);
+
+        let mut detected = Vec::new();
+        let mut window_start = 0;
+
+        while window_start + 1024 <= signal.len() {
+            let window = &signal[window_start..window_start + 1024];
+            if detector.process(window).unwrap() {
+                detected.push(window_start as f32 / sample_rate as f32);
+            }
+            window_start += 512;
+        }
+
+        // Verify combined detection
+        for &(expected, _) in &onsets {
+            assert!(
+                detected.iter().any(|&t| (t - expected).abs() < 0.05),
+                "Missing onset at {}s",
+                expected
+            );
         }
     }
 

@@ -23,7 +23,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
-            port: 3000,
+            port: 3001,
             thread_pool_size: 4,
         }
     }
