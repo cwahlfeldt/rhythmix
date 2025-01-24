@@ -76,14 +76,12 @@ impl Note {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub enum SectionType {
-    Intro,
-    Verse,
-    Chorus,
-    Break,
-    CutOut,
-    PreChorus,
-    Outro,
-    Bridge,
+    Intro,    // Builds up intensity, center focused
+    Verse,    // Main song section, alternating edges
+    Chorus,   // High intensity wave pattern
+    Bridge,   // Complex cascading pattern
+    PreChorus, // Build up to chorus
+    Outro     // Wind down, center focused
 }
 
 /// A pattern section with specific characteristics
