@@ -20,7 +20,7 @@ impl Default for DifficultyConfig {
 
 /// Manages difficulty scaling based on BPM and section intensity
 pub struct DifficultyManager {
-    config: DifficultyConfig,
+    pub config: DifficultyConfig,
     bpm: f64,
     current_intensity: f64,
 }

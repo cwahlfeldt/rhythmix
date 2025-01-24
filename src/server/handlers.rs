@@ -206,7 +206,7 @@ async fn process_audio(
     // Configure pattern generator
     let mut generator_config = GeneratorConfig::default();
     if let Some(c) = complexity {
-        generator_config.difficulty.base_level = c;
+        generator_config.difficulty_config.base_level = c;
     }
 
     // Generate pattern
