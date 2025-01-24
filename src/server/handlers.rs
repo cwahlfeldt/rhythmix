@@ -1,8 +1,8 @@
-use crate::audio_analyzer::{AnalysisConfig, AudioAnalyzer};
-use crate::audio_decoder::AudioDecoder;
-use crate::error::{helpers, Result, RhythmixError};
-use crate::pattern_generator::{GeneratorConfig, PatternGenerator};
-use crate::thread_pool::ThreadPool;
+use crate::audio::{AnalysisConfig, AudioAnalyzer};
+use crate::audio::decoder::AudioDecoder;
+use crate::common::{error::helpers, Result, RhythmixError};
+use crate::pattern::generator::{GeneratorConfig, PatternGenerator};
+use crate::server::thread_pool::ThreadPool;
 use hyper::{Body, Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
@@ -14,8 +14,6 @@ const MAX_FILE_SIZE: usize = 10 * 1024 * 1024;
 /// Request parameters for pattern generation
 #[derive(Debug, Deserialize)]
 pub struct PatternRequest {
-    /// Desired pattern complexity (0.0 to 1.0)
-    complexity: Option<f64>,
 }
 
 /// Response for pattern generation
@@ -115,7 +113,7 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
 
     let full_boundary = format!("--{}", boundary);
     let boundary_bytes = full_boundary.as_bytes();
-    let start_idx = 0;
+    let _start_idx = 0;
 
     // Find all boundary positions
     let mut boundary_positions: Vec<usize> = bytes
@@ -178,8 +176,8 @@ fn find_double_crlf(bytes: &[u8]) -> Option<usize> {
 async fn process_audio(
     file_data: Vec<u8>,
     complexity: Option<f64>,
-    thread_pool: Arc<ThreadPool>,
-) -> Result<crate::types::PatternData> {
+    _thread_pool: Arc<ThreadPool>,
+) -> Result<crate::common::types::PatternData> {
     // Log file data size
     log::info!("Processing audio file of size {} bytes", file_data.len());
 

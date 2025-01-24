@@ -1,18 +1,9 @@
-mod audio_analyzer;
-mod audio_decoder;
-mod difficulty;
-mod error;
-mod fft_processor;
-mod handlers;
-mod onset_detector;
-mod pattern_generator;
-mod pattern_types;
-mod section_detector;
+mod audio;
+mod pattern;
 mod server;
-mod thread_pool;
-mod types;
+mod common;
 
-use crate::error::Result;
+use crate::common::Result;
 use crate::server::{load_config_from_env, RhythmixServer};
 use log::{error, info};
 

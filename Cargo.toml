@@ -7,14 +7,15 @@ authors = ["Rhythmix Team"]
 license = "MIT"
 
 [dependencies]
+# Audio processing
+rodio = "0.17"
+rustfft = "6.1"
+hound = "3.5"
+
 # HTTP server
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1.0", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-
-# Audio processing
-rodio = "0.17"
-rustfft = "6.1"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -33,6 +34,7 @@ crossbeam-channel = "0.5"
 
 # Random number generation
 rand = "0.8"
+fastrand = "2.0"
 
 # Logging and configuration
 env_logger = "0.10"
@@ -40,3 +42,8 @@ log = "0.4"
 
 [dev-dependencies]
 tokio-test = "0.4"
+criterion = "0.5"
+
+[[bench]]
+name = "audio_analysis"
+harness = false

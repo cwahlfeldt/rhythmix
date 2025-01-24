@@ -10,9 +10,6 @@ pub enum RhythmixError {
     #[error("Audio decoding error: {0}")]
     AudioDecoding(String),
 
-    #[error("Invalid audio format: {0}")]
-    InvalidAudioFormat(String),
-
     #[error("FFT processing error: {0}")]
     FftProcessing(String),
 
@@ -24,9 +21,6 @@ pub enum RhythmixError {
 
     #[error("Unsupported file type: {0}")]
     UnsupportedFileType(String),
-
-    #[error("Pattern generation error: {0}")]
-    PatternGeneration(String),
 
     #[error("Thread pool error: {0}")]
     ThreadPool(String),
@@ -77,23 +71,6 @@ pub mod helpers {
         Ok(())
     }
 
-    /// Validates a file's extension is supported
-    pub fn validate_file_type(filename: &str) -> Result<()> {
-        let extension = filename
-            .split('.')
-            .last()
-            .ok_or_else(|| RhythmixError::UnsupportedFileType("No file extension".to_string()))?
-            .to_lowercase();
-
-        match extension.as_str() {
-            "mp3" | "wav" => Ok(()),
-            _ => Err(RhythmixError::UnsupportedFileType(format!(
-                "Unsupported file type: {}",
-                extension
-            ))),
-        }
-    }
-
     /// Validates pattern generation parameters
     pub fn validate_pattern_config(complexity: f64) -> Result<()> {
         if !(0.0..=1.0).contains(&complexity) {
@@ -124,14 +101,6 @@ mod tests {
             }
             _ => panic!("Expected FileTooLarge error"),
         }
-    }
-
-    #[test]
-    fn test_validate_file_type() {
-        assert!(helpers::validate_file_type("test.mp3").is_ok());
-        assert!(helpers::validate_file_type("test.wav").is_ok());
-        assert!(helpers::validate_file_type("test.ogg").is_err());
-        assert!(helpers::validate_file_type("test").is_err());
     }
 
     #[test]

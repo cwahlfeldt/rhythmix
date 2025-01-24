@@ -1,4 +1,4 @@
-use crate::pattern_types::{Note, PatternSection as Section};
+use crate::pattern::types::{Note, PatternSection as Section};
 use serde::{Deserialize, Serialize};
 
 /// Metadata about the analyzed audio and generated pattern

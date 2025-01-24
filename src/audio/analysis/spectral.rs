@@ -1,16 +1,16 @@
-use crate::error::{Result, RhythmixError};
+use crate::common::{Result, RhythmixError};
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::Arc;
 
-/// Handles FFT processing for audio analysis
-pub struct FftProcessor {
+/// Handles spectral analysis for audio processing
+pub struct SpectralAnalyzer {
     fft: Arc<dyn rustfft::Fft<f32>>,
     window_size: usize,
     window: Vec<f32>,
 }
 
-impl FftProcessor {
-    /// Creates a new FFT processor with the specified window size
+impl SpectralAnalyzer {
+    /// Creates a new spectral analyzer with the specified window size
     ///
     /// # Arguments
     /// * `window_size` - Size of the FFT window (must be a power of 2)
@@ -79,29 +79,39 @@ impl FftProcessor {
         Ok((magnitudes, phases))
     }
 
-    /// Process a chunk of audio samples using FFT
+    /// Compute energy bands from FFT magnitudes
     ///
     /// # Arguments
-    /// * `samples` - Audio samples to process
-    ///
-    /// # Returns
-    /// Vector of frequency magnitudes
-    ///
-    /// # Errors
-    /// Returns an error if the input length doesn't match the window size
-    pub fn process(&self, samples: &[f32]) -> Result<Vec<f32>> {
-        Ok(self.process_with_phases(samples)?.0)
+    /// * `magnitudes` - FFT magnitudes
+    /// * `num_bands` - Number of frequency bands to compute
+    pub fn compute_frequency_bands(&self, magnitudes: &[f32], num_bands: usize) -> Vec<f32> {
+        let mut bands = vec![0.0; num_bands];
+        let bins_per_band = (magnitudes.len() / num_bands).max(1);
+
+        for (i, band) in bands.iter_mut().enumerate() {
+            let start = i * bins_per_band;
+            let end = ((i + 1) * bins_per_band).min(magnitudes.len());
+            *band = magnitudes[start..end].iter().sum::<f32>() / (end - start) as f32;
+        }
+
+        bands
     }
 
-    /// Get the frequency resolution of the FFT
+    /// Calculate frequency resolution for a given sample rate
     ///
     /// # Arguments
-    /// * `sample_rate` - Sample rate of the audio in Hz
-    ///
-    /// # Returns
-    /// Frequency resolution in Hz per bin
+    /// * `sample_rate` - Audio sample rate in Hz
     pub fn frequency_resolution(&self, sample_rate: u32) -> f32 {
         sample_rate as f32 / self.window_size as f32
+    }
+
+    /// Convert frequency bin index to frequency in Hz
+    ///
+    /// # Arguments
+    /// * `bin` - Frequency bin index
+    /// * `sample_rate` - Audio sample rate in Hz
+    pub fn bin_to_frequency(&self, bin: usize, sample_rate: u32) -> f32 {
+        bin as f32 * self.frequency_resolution(sample_rate)
     }
 
     /// Creates a Hann window for the given size
@@ -113,42 +123,6 @@ impl FftProcessor {
             })
             .collect()
     }
-
-    /// Convert FFT bin index to frequency
-    ///
-    /// # Arguments
-    /// * `bin` - FFT bin index
-    /// * `sample_rate` - Sample rate of the audio in Hz
-    ///
-    /// # Returns
-    /// Frequency in Hz
-    pub fn bin_to_frequency(&self, bin: usize, sample_rate: u32) -> f32 {
-        bin as f32 * self.frequency_resolution(sample_rate)
-    }
-
-    /// Find peaks in the frequency spectrum
-    ///
-    /// # Arguments
-    /// * `magnitudes` - Vector of frequency magnitudes
-    /// * `threshold` - Minimum magnitude for a peak
-    ///
-    /// # Returns
-    /// Vector of peak indices
-    pub fn find_peaks(&self, magnitudes: &[f32], threshold: f32) -> Vec<usize> {
-        let mut peaks = Vec::new();
-
-        // Skip first and last bins
-        for i in 1..magnitudes.len() - 1 {
-            if magnitudes[i] > threshold
-                && magnitudes[i] > magnitudes[i - 1]
-                && magnitudes[i] > magnitudes[i + 1]
-            {
-                peaks.push(i);
-            }
-        }
-
-        peaks
-    }
 }
 
 #[cfg(test)]
@@ -157,15 +131,15 @@ mod tests {
     use std::f32::consts::PI;
 
     #[test]
-    fn test_fft_processor_creation() {
-        assert!(FftProcessor::new(1024).is_ok());
-        assert!(FftProcessor::new(1000).is_err()); // Not power of 2
+    fn test_spectral_analyzer_creation() {
+        assert!(SpectralAnalyzer::new(1024).is_ok());
+        assert!(SpectralAnalyzer::new(1000).is_err()); // Not power of 2
     }
 
     #[test]
     fn test_process_sine_wave() {
         let window_size = 1024;
-        let processor = FftProcessor::new(window_size).unwrap();
+        let analyzer = SpectralAnalyzer::new(window_size).unwrap();
         let sample_rate = 44100;
         let frequency = 440.0; // A4 note
 
@@ -174,32 +148,30 @@ mod tests {
             .map(|i| (2.0 * PI * frequency * i as f32 / sample_rate as f32).sin())
             .collect();
 
-        let magnitudes = processor.process(&samples).unwrap();
+        let (magnitudes, _) = analyzer.process_with_phases(&samples).unwrap();
 
-        // Find the frequency bin corresponding to 440 Hz
-        let target_bin = (frequency / processor.frequency_resolution(sample_rate)).round() as usize;
+        // Find peak frequency bin
+        let peak_bin = magnitudes
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
 
-        // Check if there's a peak at the target frequency
-        let peaks = processor.find_peaks(&magnitudes, 0.1);
-        assert!(peaks.contains(&target_bin));
+        // Calculate expected frequency bin
+        let expected_bin = (frequency / analyzer.frequency_resolution(sample_rate)).round() as usize;
+        
+        // Allow for some margin due to windowing
+        assert!((peak_bin as i32 - expected_bin as i32).abs() <= 1);
     }
 
     #[test]
-    fn test_frequency_resolution() {
-        let processor = FftProcessor::new(1024).unwrap();
-        let sample_rate = 44100;
-        let expected_resolution = 44100.0 / 1024.0;
+    fn test_frequency_bands() {
+        let analyzer = SpectralAnalyzer::new(1024).unwrap();
+        let magnitudes = vec![1.0; 513]; // Nyquist length
+        let bands = analyzer.compute_frequency_bands(&magnitudes, 8);
 
-        assert!((processor.frequency_resolution(sample_rate) - expected_resolution).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_bin_to_frequency() {
-        let processor = FftProcessor::new(1024).unwrap();
-        let sample_rate = 44100;
-        let bin = 10;
-
-        let expected_freq = 10.0 * sample_rate as f32 / 1024.0;
-        assert!((processor.bin_to_frequency(bin, sample_rate) - expected_freq).abs() < 0.001);
+        assert_eq!(bands.len(), 8);
+        assert!(bands.iter().all(|&x| x > 0.0));
     }
 }

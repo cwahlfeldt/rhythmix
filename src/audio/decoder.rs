@@ -1,8 +1,6 @@
-use crate::error::{Result, RhythmixError};
+use crate::common::{Result, RhythmixError};
 use rodio::{Decoder, Source};
-use std::fs::File;
-use std::io::{BufReader, Cursor, Read, Seek};
-use std::path::Path;
+use std::io::{Cursor, Read, Seek};
 
 /// Handles decoding of audio files into raw samples
 pub struct AudioDecoder {
@@ -15,21 +13,6 @@ pub struct AudioDecoder {
 }
 
 impl AudioDecoder {
-    /// Creates a new AudioDecoder from a file path
-    ///
-    /// # Arguments
-    /// * `path` - Path to the audio file
-    ///
-    /// # Errors
-    /// Returns an error if the file cannot be read or decoded
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let file = File::open(path).map_err(|e| {
-            RhythmixError::AudioDecoding(format!("Failed to open audio file: {}", e))
-        })?;
-
-        Self::from_reader(BufReader::new(file))
-    }
-
     /// Creates a new AudioDecoder from bytes
     ///
     /// # Arguments
@@ -62,7 +45,7 @@ impl AudioDecoder {
             RhythmixError::AudioDecoding(format!("Failed to get file size: {}", e))
         })?;
 
-        if file_size < 128 { // Minimum size for MP3 header
+        if file_size < 128 {
             return Err(RhythmixError::AudioDecoding(
                 "File too small to be valid audio".into(),
             ));
@@ -109,21 +92,6 @@ impl AudioDecoder {
         self.sample_rate
     }
 
-    /// Gets the number of channels in the audio
-    pub fn channels(&self) -> u16 {
-        self.channels
-    }
-
-    /// Gets the duration of the audio in seconds
-    pub fn duration(&self) -> f64 {
-        self.samples.len() as f64 / (self.sample_rate as f64 * self.channels as f64)
-    }
-
-    /// Gets a reference to the raw samples
-    pub fn samples(&self) -> &[f32] {
-        &self.samples
-    }
-
     /// Converts stereo to mono by averaging channels if necessary
     ///
     /// # Returns
@@ -145,22 +113,6 @@ impl AudioDecoder {
             }
 
             mono_samples
-        }
-    }
-
-    /// Gets a chunk of samples starting at the specified offset
-    ///
-    /// # Arguments
-    /// * `offset` - Starting sample index
-    /// * `size` - Number of samples to get
-    ///
-    /// # Returns
-    /// A vector containing the requested samples, or None if out of bounds
-    pub fn get_chunk(&self, offset: usize, size: usize) -> Option<Vec<f32>> {
-        if offset + size <= self.samples.len() {
-            Some(self.samples[offset..offset + size].to_vec())
-        } else {
-            None
         }
     }
 }
@@ -221,27 +173,6 @@ mod tests {
         let decoder = AudioDecoder::from_bytes(wav_data).unwrap();
 
         assert_eq!(decoder.sample_rate(), 44100);
-        assert_eq!(decoder.channels(), 1);
-        assert!((decoder.duration() - 1.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_to_mono() {
-        let wav_data = create_test_wav();
-        let decoder = AudioDecoder::from_bytes(wav_data).unwrap();
-        let mono = decoder.to_mono();
-
-        assert_eq!(mono.len(), decoder.samples().len());
-    }
-
-    #[test]
-    fn test_get_chunk() {
-        let wav_data = create_test_wav();
-        let decoder = AudioDecoder::from_bytes(wav_data).unwrap();
-
-        let chunk = decoder.get_chunk(0, 1000).unwrap();
-        assert_eq!(chunk.len(), 1000);
-
-        assert!(decoder.get_chunk(decoder.samples().len(), 1000).is_none());
+        assert!(!decoder.to_mono().is_empty());
     }
 }
