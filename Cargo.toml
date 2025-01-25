@@ -43,7 +43,3 @@ log = "0.4"
 [dev-dependencies]
 tokio-test = "0.4"
 criterion = "0.5"
-
-[[bench]]
-name = "audio_analysis"
-harness = false

@@ -159,8 +159,9 @@ mod tests {
             .unwrap();
 
         // Calculate expected frequency bin
-        let expected_bin = (frequency / analyzer.frequency_resolution(sample_rate)).round() as usize;
-        
+        let expected_bin =
+            (frequency / analyzer.frequency_resolution(sample_rate)).round() as usize;
+
         // Allow for some margin due to windowing
         assert!((peak_bin as i32 - expected_bin as i32).abs() <= 1);
     }

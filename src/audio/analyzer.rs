@@ -46,7 +46,8 @@ pub struct AnalysisResults {
 
 /// Comprehensive audio analyzer that combines onset detection, tempo analysis, and feature extraction
 pub struct AudioAnalyzer {
-    config: AnalysisConfig,
+    #[allow(dead_code)]
+    config: AnalysisConfig,  // Stored for future dynamic reconfiguration
     onset_detector: OnsetDetector,
     tempo_analyzer: TempoAnalyzer,
     feature_extractor: FeatureExtractor,

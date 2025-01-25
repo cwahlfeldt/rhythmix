@@ -7,7 +7,8 @@ pub struct FeatureConfig {
     /// Size of the FFT window
     pub window_size: usize,
     /// Number of frequency bands for spectral features
-    pub num_bands: usize,
+    #[allow(dead_code)]
+    pub num_bands: usize,  // Used for future multi-band analysis
     /// Minimum frequency for bass band (Hz)
     pub bass_band_min: f32,
     /// Maximum frequency for bass band (Hz)

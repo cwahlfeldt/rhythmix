@@ -33,6 +33,8 @@ pub struct TempoResults {
     /// Confidence level of the detection (0.0 - 1.0)
     pub confidence: f64,
     /// Phase offset in seconds
+    /// Phase offset - used for future beat alignment
+    #[allow(dead_code)]
     pub phase: f64,
 }
 
@@ -76,7 +78,7 @@ impl BpmCluster {
                 variance_sum += (value - self.bpm).powi(2);
             }
             let variance = variance_sum / self.values.len() as f64;
-            
+
             // Convert variance to confidence (0.0 - 1.0)
             self.confidence = (-variance / 4.0).exp(); // exponential falloff
         }
@@ -88,7 +90,8 @@ pub struct TempoAnalyzer {
     config: TempoConfig,
     inter_onset_intervals: VecDeque<f64>,
     current_time: f64,
-    sample_rate: u32,
+    #[allow(dead_code)]
+    sample_rate: u32, // Used for future sample-based processing
     last_tempo: Option<TempoResults>,
 }
 
@@ -113,27 +116,28 @@ impl TempoAnalyzer {
             // Calculate inter-onset interval
             if self.current_time > 0.0 {
                 let ioi = onset_time - self.current_time;
-                
+
                 // Only add if it's within a reasonable range
                 let min_ioi = 60.0 / self.config.max_bpm;
                 let max_ioi = 60.0 / self.config.min_bpm;
-                
+
                 if ioi >= min_ioi && ioi <= max_ioi {
                     self.inter_onset_intervals.push_back(ioi);
-    
+
                     // Keep a sliding window of intervals
                     let window_size = (self.config.tempo_window / min_ioi).ceil() as usize;
                     while self.inter_onset_intervals.len() > window_size {
                         self.inter_onset_intervals.pop_front();
                     }
-    
+
                     // Only estimate tempo if we have enough intervals
                     if self.inter_onset_intervals.len() >= 4 {
                         let new_tempo = self.estimate_tempo();
-                        
+
                         // Update if confidence is good enough or we don't have a previous estimate
-                        if new_tempo.confidence >= self.config.confidence_threshold 
-                            || self.last_tempo.is_none() {
+                        if new_tempo.confidence >= self.config.confidence_threshold
+                            || self.last_tempo.is_none()
+                        {
                             self.last_tempo = Some(new_tempo.clone());
                             tempo_update = Some(new_tempo);
                         }
@@ -153,14 +157,17 @@ impl TempoAnalyzer {
     }
 
     /// Update the current time based on processed samples
+    #[allow(dead_code)]
     pub fn advance_time(&mut self, num_samples: usize) {
+        // Used for future real-time processing
         self.current_time += num_samples as f64 / self.sample_rate as f64;
     }
 
     /// Estimate tempo from collected inter-onset intervals
     fn estimate_tempo(&self) -> TempoResults {
         // First get all possible BPM values
-        let mut bpms: Vec<f64> = self.inter_onset_intervals
+        let mut bpms: Vec<f64> = self
+            .inter_onset_intervals
             .iter()
             .map(|&ioi| 60.0 / ioi)
             .collect();
@@ -170,7 +177,7 @@ impl TempoAnalyzer {
 
         // Find clusters of similar BPM values
         let mut clusters = self.find_bpm_clusters(&bpms);
-        
+
         // Use the largest, most consistent cluster
         clusters.sort_by(|a, b| {
             let a_score = a.values.len() as f64 * a.confidence;
@@ -266,8 +273,16 @@ mod tests {
 
             if let Ok(Some(results)) = analyzer.process_onset(time) {
                 // Allow for some variance due to jitter
-                assert!((results.bpm - 120.0).abs() < 5.0, "BPM estimate {}", results.bpm);
-                assert!(results.confidence > 0.5, "Low confidence: {}", results.confidence);
+                assert!(
+                    (results.bpm - 120.0).abs() < 5.0,
+                    "BPM estimate {}",
+                    results.bpm
+                );
+                assert!(
+                    results.confidence > 0.5,
+                    "Low confidence: {}",
+                    results.confidence
+                );
                 assert!(results.phase >= 0.0 && results.phase < interval);
             }
         }
@@ -295,7 +310,7 @@ mod tests {
 
         // Test intervals that should be ignored (too fast/slow)
         let too_fast = 60.0 / 200.0; // 200 BPM
-        let too_slow = 60.0 / 40.0;  // 40 BPM
+        let too_slow = 60.0 / 40.0; // 40 BPM
 
         assert!(analyzer.process_onset(0.0).unwrap().is_none());
         assert!(analyzer.process_onset(too_fast).unwrap().is_none());

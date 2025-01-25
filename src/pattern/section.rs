@@ -1,6 +1,5 @@
 use crate::common::Result;
 use crate::pattern::types::{PatternSection, SectionType};
-use std::cmp::Ordering;
 
 /// Configuration for section generation
 #[derive(Debug, Clone)]
@@ -10,7 +9,8 @@ pub struct SectionConfig {
     /// Base intensity for section types
     pub base_intensities: Vec<(SectionType, f64)>,
     /// Minimum time between intensity changes
-    pub min_intensity_interval: f64,
+    #[allow(dead_code)]
+    pub min_intensity_interval: f64, // Used for future gradual intensity changes
 }
 
 impl Default for SectionConfig {
@@ -49,7 +49,7 @@ impl SectionManager {
     /// Generate initial sections for the entire song
     pub fn generate_sections(&self) -> Result<Vec<PatternSection>> {
         let mut sections = Vec::new();
-        let mut current_time = 0.0;
+        let mut current_section_start = 0.0;
 
         // Add intro section
         let intro_duration = self.config.min_section_duration * 1.5;
@@ -59,26 +59,26 @@ impl SectionManager {
             SectionType::Intro,
             self.get_base_intensity(&SectionType::Intro),
         ));
-        current_time = intro_duration;
+        current_section_start = intro_duration;
 
         // Main song sections
-        while current_time < self.total_duration - self.config.min_section_duration * 2.0 {
+        while current_section_start < self.total_duration - self.config.min_section_duration * 2.0 {
             let section_type = self.determine_next_section(&sections);
             let duration = self.calculate_section_duration(&section_type);
-            
+
             sections.push(PatternSection::new(
-                current_time,
-                current_time + duration,
+                current_section_start,
+                current_section_start + duration,
                 section_type,
                 self.get_base_intensity(&section_type),
             ));
-            
-            current_time += duration;
+
+            current_section_start += duration;
         }
 
         // Add outro section
         sections.push(PatternSection::new(
-            current_time,
+            current_section_start,
             self.total_duration,
             SectionType::Outro,
             self.get_base_intensity(&SectionType::Outro),
@@ -149,7 +149,7 @@ mod tests {
         assert!(!sections.is_empty());
         assert_eq!(sections[0].section_type, SectionType::Intro);
         assert_eq!(sections.last().unwrap().section_type, SectionType::Outro);
-        
+
         // Check section timing
         for window in sections.windows(2) {
             assert_eq!(window[0].end_time, window[1].start_time);

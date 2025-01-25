@@ -20,6 +20,7 @@ pub enum RhythmixError {
     FileTooLarge { max_size: usize, actual_size: usize },
 
     #[error("Unsupported file type: {0}")]
+    #[allow(dead_code)]  // Used for future file format validation
     UnsupportedFileType(String),
 
     #[error("Thread pool error: {0}")]

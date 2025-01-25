@@ -1,9 +1,8 @@
-mod spectral;
-mod onset;
-mod tempo;
 mod features;
+mod onset;
+mod spectral;
+mod tempo;
 
-pub use spectral::{SpectralAnalyzer};
-pub use onset::{OnsetDetector, OnsetConfig, OnsetResult};
-pub use tempo::{TempoAnalyzer, TempoConfig, TempoResults};
-pub use features::{FeatureExtractor, FeatureConfig, AudioFeatures};
+pub use features::{AudioFeatures, FeatureConfig, FeatureExtractor};
+pub use onset::{OnsetConfig, OnsetDetector};
+pub use tempo::{TempoAnalyzer, TempoConfig};

@@ -1,5 +1,5 @@
-use crate::common::Result;
 use super::spectral::SpectralAnalyzer;
+use crate::common::Result;
 use std::collections::VecDeque;
 
 /// Configuration for onset detection
@@ -38,8 +38,11 @@ pub struct OnsetResult {
     /// Whether an onset was detected
     pub is_onset: bool,
     /// Spectral flux value
+    /// Spectral flux value - used for future onset classification
+    #[allow(dead_code)]
     pub flux: f32,
-    /// Phase deviation value
+    /// Phase deviation value - used for future onset classification
+    #[allow(dead_code)]
     pub phase_dev: f32,
     /// Overall onset strength (0.0 - 1.0)
     pub strength: f32,
@@ -78,7 +81,9 @@ impl OnsetDetector {
         let (magnitudes, phases) = self.spectral.process_with_phases(samples)?;
 
         // Compute frequency bands
-        let bands = self.spectral.compute_frequency_bands(&magnitudes, self.config.num_bands);
+        let bands = self
+            .spectral
+            .compute_frequency_bands(&magnitudes, self.config.num_bands);
 
         // Initialize state if this is the first frame
         if self.prev_magnitudes.is_none() {
@@ -282,7 +287,7 @@ mod tests {
         }
 
         assert!(!onsets.is_empty());
-        
+
         // Check that onsets are reasonably spaced
         if onsets.len() >= 2 {
             for window in onsets.windows(2) {

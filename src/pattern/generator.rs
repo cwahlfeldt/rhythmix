@@ -1,9 +1,8 @@
-use crate::audio::{AnalysisConfig, AnalysisResults, AudioFeatures};
+use crate::audio::{AnalysisResults, AudioFeatures};
 use crate::pattern::difficulty::{DifficultyConfig, DifficultyManager};
 use crate::common::Result;
 use crate::pattern::types::{Lane, Note, NoteType, PatternSection};
 use crate::common::types::{PatternData, PatternMetadata};
-use rand::random;
 
 #[derive(Debug, Clone)]
 pub struct GeneratorConfig {

@@ -86,16 +86,19 @@ impl PatternSection {
     }
 
     /// Get the duration of the section in seconds
+    #[allow(dead_code)]
     pub fn duration(&self) -> f64 {
         self.end_time - self.start_time
     }
 
     /// Check if a timestamp falls within this section
+    #[allow(dead_code)]
     pub fn contains(&self, timestamp: f64) -> bool {
         timestamp >= self.start_time && timestamp < self.end_time
     }
 
     /// Get the relative position within the section (0.0 to 1.0)
+    #[allow(dead_code)]
     pub fn relative_position(&self, timestamp: f64) -> Option<f64> {
         if self.contains(timestamp) {
             Some((timestamp - self.start_time) / self.duration())
@@ -105,6 +108,7 @@ impl PatternSection {
     }
 
     /// Get the recommended note density based on section type and intensity
+    #[allow(dead_code)]
     pub fn get_note_density(&self) -> f64 {
         let base_density = match self.section_type {
             SectionType::Intro => 0.5,
@@ -119,9 +123,11 @@ impl PatternSection {
     }
 
     /// Merge with another section if they are adjacent and of the same type
+    #[allow(dead_code)]
     pub fn try_merge(&self, other: &Self) -> Option<Self> {
-        if self.section_type == other.section_type 
-            && (self.end_time - other.start_time).abs() < f64::EPSILON {
+        if self.section_type == other.section_type
+            && (self.end_time - other.start_time).abs() < f64::EPSILON
+        {
             Some(Self::new(
                 self.start_time,
                 other.end_time,
@@ -142,7 +148,9 @@ impl PartialOrd for PatternSection {
 
 impl Ord for PatternSection {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.start_time.partial_cmp(&other.start_time).unwrap_or(std::cmp::Ordering::Equal)
+        self.start_time
+            .partial_cmp(&other.start_time)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -150,8 +158,8 @@ impl Eq for PatternSection {}
 
 impl PartialEq for PatternSection {
     fn eq(&self, other: &Self) -> bool {
-        self.start_time == other.start_time 
-            && self.end_time == other.end_time 
+        self.start_time == other.start_time
+            && self.end_time == other.end_time
             && self.section_type == other.section_type
     }
 }
