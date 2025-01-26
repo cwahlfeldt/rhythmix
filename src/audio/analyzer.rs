@@ -5,6 +5,7 @@ use crate::audio::analysis::{
     FeatureExtractor, FeatureConfig,
     AudioFeatures,
 };
+use crate::audio::analysis::tempo::TimeSignature;
 
 /// Configuration for complete audio analysis
 #[derive(Debug, Clone)]
@@ -34,6 +35,8 @@ pub struct AnalysisResults {
     pub bpm: f64,
     /// Confidence in tempo detection (0.0 - 1.0)
     pub tempo_confidence: f64,
+    /// Detected time signature
+    pub time_signature: TimeSignature,
     /// Onset times in seconds
     pub onset_times: Vec<f64>,
     /// Onset strengths (0.0 - 1.0)
@@ -137,7 +140,7 @@ impl AudioAnalyzer {
         // If we detected an onset, update tempo and store features
         if onset_result.is_onset {
             // Update tempo analysis
-            if let Ok(Some(tempo_result)) = self.tempo_analyzer.process_onset(self.current_time) {
+            if let Ok(Some(tempo_result)) = self.tempo_analyzer.process_onset(self.current_time, onset_result.strength as f64) {
                 log::info!(
                     "Tempo update - BPM: {:.1}, Confidence: {:.2}",
                     tempo_result.bpm,
@@ -172,6 +175,7 @@ impl AudioAnalyzer {
         AnalysisResults {
             bpm: last_tempo.0,
             tempo_confidence: last_tempo.1,
+            time_signature: TimeSignature::default(),
             onset_times: self.onset_times.clone(),
             onset_strengths: self.onset_strengths.clone(),
             onset_features: self.onset_features.clone(),

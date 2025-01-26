@@ -53,12 +53,17 @@ fn default_intensity() -> f64 {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy)]
 pub enum SectionType {
-    Intro,     // Builds up intensity, center focused
-    Verse,     // Main song section, alternating edges
-    Chorus,    // High intensity wave pattern
-    Bridge,    // Complex cascading pattern
-    PreChorus, // Build up to chorus
-    Outro,     // Wind down, center focused
+    Intro,      // Initial build-up
+    Verse,      // Main sections
+    Verse2,     // Variation of verse
+    PreChorus,  // Build up to chorus
+    Chorus,     // High energy section
+    PostChorus, // Maintain energy after chorus
+    Bridge,     // Break in pattern
+    Breakdown,  // Stripped back section
+    BuildUp,    // Increasing intensity
+    Drop,       // High intensity after buildup
+    Outro,      // Wind down
 }
 
 /// A pattern section with specific characteristics
@@ -112,10 +117,10 @@ impl PatternSection {
     pub fn get_note_density(&self) -> f64 {
         let base_density = match self.section_type {
             SectionType::Intro => 0.5,
-            SectionType::Verse => 0.7,
-            SectionType::PreChorus => 0.8,
-            SectionType::Chorus => 1.0,
-            SectionType::Bridge => 0.9,
+            SectionType::Verse | SectionType::Verse2 => 0.7,
+            SectionType::PreChorus | SectionType::BuildUp => 0.8,
+            SectionType::Chorus | SectionType::PostChorus | SectionType::Drop => 1.0,
+            SectionType::Bridge | SectionType::Breakdown => 0.9,
             SectionType::Outro => 0.6,
         };
 

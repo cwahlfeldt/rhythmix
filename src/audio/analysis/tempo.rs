@@ -27,6 +27,26 @@ impl Default for TempoConfig {
 
 /// Results from tempo analysis
 #[derive(Debug, Clone)]
+pub struct TimeSignature {
+    /// Number of beats per measure
+    pub beats_per_measure: u8,
+    /// Note value that represents one beat (4 = quarter, 8 = eighth, etc.)
+    pub beat_unit: u8,
+    /// Confidence in the time signature detection (0.0 - 1.0)
+    pub confidence: f64,
+}
+
+impl Default for TimeSignature {
+    fn default() -> Self {
+        Self {
+            beats_per_measure: 4, // Default to 4/4
+            beat_unit: 4,
+            confidence: 0.0,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct TempoResults {
     /// Detected tempo in BPM
     pub bpm: f64,
@@ -34,8 +54,9 @@ pub struct TempoResults {
     pub confidence: f64,
     /// Phase offset in seconds
     /// Phase offset - used for future beat alignment
-    #[allow(dead_code)]
     pub phase: f64,
+    /// Detected time signature
+    pub time_signature: TimeSignature,
 }
 
 /// Helper struct for BPM clustering
@@ -90,8 +111,10 @@ pub struct TempoAnalyzer {
     config: TempoConfig,
     inter_onset_intervals: VecDeque<f64>,
     current_time: f64,
+    beat_strengths: VecDeque<f64>, // Store beat strengths for time signature detection
+    measure_positions: VecDeque<usize>, // Store beat positions within measures
     #[allow(dead_code)]
-    sample_rate: u32, // Used for future sample-based processing
+    sample_rate: u32,
     last_tempo: Option<TempoResults>,
 }
 
@@ -102,13 +125,110 @@ impl TempoAnalyzer {
             config,
             inter_onset_intervals: VecDeque::new(),
             current_time: 0.0,
+            beat_strengths: VecDeque::with_capacity(32),
+            measure_positions: VecDeque::with_capacity(32),
             sample_rate,
             last_tempo: None,
         }
     }
 
+    /// Detect time signature based on beat strengths and positions
+    fn detect_time_signature(&self) -> TimeSignature {
+        if self.beat_strengths.len() < 8 {
+            return TimeSignature::default();
+        }
+
+        // Calculate average strengths for each beat position
+        let mut position_strengths = vec![0.0; 12]; // Support up to 12/X time signatures
+        let mut position_counts = vec![0; 12];
+
+        for (pos, &strength) in self
+            .measure_positions
+            .iter()
+            .zip(self.beat_strengths.iter())
+        {
+            position_strengths[*pos] += strength;
+            position_counts[*pos] += 1;
+        }
+
+        // Normalize strengths
+        for i in 0..12 {
+            if position_counts[i] > 0 {
+                position_strengths[i] /= position_counts[i] as f64;
+            }
+        }
+
+        // Find peaks in position strengths
+        let peaks: Vec<_> = position_strengths
+            .iter()
+            .enumerate()
+            .filter(|&(i, &strength)| {
+                let prev = if i == 0 {
+                    0.0
+                } else {
+                    position_strengths[i - 1]
+                };
+                let next = if i == 11 {
+                    0.0
+                } else {
+                    position_strengths[i + 1]
+                };
+                strength > 0.0 && strength >= prev && strength >= next
+            })
+            .collect();
+
+        // Determine beats per measure based on peak spacing
+        let (beats_per_measure, confidence) = if peaks.len() >= 2 {
+            let spacings: Vec<_> = peaks.windows(2).map(|w| w[1].0 - w[0].0).collect();
+
+            // Most common spacing indicates the measure length
+            let mut spacing_counts = std::collections::HashMap::new();
+            for &spacing in &spacings {
+                *spacing_counts.entry(spacing).or_insert(0) += 1;
+            }
+
+            let most_common = spacing_counts
+                .into_iter()
+                .max_by_key(|&(_, count)| count)
+                .unwrap_or((4, 0));
+
+            let confidence = if spacings.is_empty() {
+                0.0
+            } else {
+                most_common.1 as f64 / spacings.len() as f64
+            };
+
+            (most_common.0 as u8, confidence)
+        } else {
+            (4, 0.0) // Default to 4/4 with low confidence
+        };
+
+        // Look for triplet feel
+        let triplet_ratio = self
+            .inter_onset_intervals
+            .iter()
+            .filter(|&&ioi| {
+                let quarter = 60.0 / self.last_tempo.as_ref().map(|t| t.bpm).unwrap_or(120.0);
+                (ioi - quarter / 3.0).abs() < quarter / 12.0
+            })
+            .count() as f64
+            / self.inter_onset_intervals.len() as f64;
+
+        let beat_unit = if triplet_ratio > 0.3 { 8 } else { 4 };
+
+        TimeSignature {
+            beats_per_measure,
+            beat_unit,
+            confidence,
+        }
+    }
+
     /// Process an onset event and update tempo estimation
-    pub fn process_onset(&mut self, onset_time: f64) -> Result<Option<TempoResults>> {
+    pub fn process_onset(
+        &mut self,
+        onset_time: f64,
+        strength: f64,
+    ) -> Result<Option<TempoResults>> {
         let mut tempo_update = None;
 
         // Only process if onset time is after current time
@@ -132,7 +252,23 @@ impl TempoAnalyzer {
 
                     // Only estimate tempo if we have enough intervals
                     if self.inter_onset_intervals.len() >= 4 {
-                        let new_tempo = self.estimate_tempo();
+                        // Store beat strength and position
+                        if let Some(last_tempo) = &self.last_tempo {
+                            let beat_position = ((onset_time * last_tempo.bpm / 60.0)
+                                % last_tempo.time_signature.beats_per_measure as f64)
+                                .round() as usize;
+                            self.beat_strengths.push_back(strength);
+                            self.measure_positions.push_back(beat_position);
+
+                            // Keep history manageable
+                            if self.beat_strengths.len() > 32 {
+                                self.beat_strengths.pop_front();
+                                self.measure_positions.pop_front();
+                            }
+                        }
+
+                        let mut new_tempo = self.estimate_tempo();
+                        new_tempo.time_signature = self.detect_time_signature();
 
                         // Update if confidence is good enough or we don't have a previous estimate
                         if new_tempo.confidence >= self.config.confidence_threshold
@@ -192,6 +328,7 @@ impl TempoAnalyzer {
             bpm: best_cluster.bpm,
             confidence: best_cluster.confidence,
             phase,
+            time_signature: self.detect_time_signature(),
         }
     }
 
