@@ -1,9 +1,11 @@
-use crate::audio::{AnalysisConfig, AudioAnalyzer};
 use crate::audio::decoder::AudioDecoder;
+use crate::audio::{AnalysisConfig, AudioAnalyzer};
 use crate::common::{error::helpers, Result, RhythmixError};
 use crate::pattern::generator::{GeneratorConfig, PatternGenerator};
 use crate::server::thread_pool::ThreadPool;
+use base64::Engine;
 use hyper::{Body, Method, Request, Response, StatusCode};
+use id3::{Tag, TagLike};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use std::sync::Arc;
@@ -14,6 +16,8 @@ const MAX_FILE_SIZE: usize = 10 * 1024 * 1024;
 /// Request parameters for pattern generation
 #[derive(Debug, Deserialize)]
 pub struct PatternRequest {
+    #[serde(default)]
+    pub grid_division: Option<String>, // "whole", "half", "quarter", "eighth", "sixteenth"
 }
 
 /// Response for pattern generation
@@ -52,13 +56,13 @@ async fn handle_analyze(
         RhythmixError::InvalidRequest(format!("Failed to read request body: {}", e))
     })?;
 
-    let (file_data, complexity) = parse_multipart(&body_bytes, &boundary)?;
+    let (file_data, complexity, filename, grid_division) = parse_multipart(&body_bytes, &boundary)?;
 
     // Validate file size
     helpers::validate_file_size(file_data.len(), MAX_FILE_SIZE)?;
 
     // Process audio file
-    let pattern_data = process_audio(file_data, complexity, thread_pool).await?;
+    let pattern_data = process_audio(file_data, complexity, filename, grid_division, thread_pool).await?;
 
     // Construct success response
     let response = PatternResponse {
@@ -107,9 +111,11 @@ fn get_boundary(headers: &hyper::HeaderMap) -> Result<String> {
 }
 
 /// Parses multipart form data
-fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>)> {
+fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>, Option<String>, Option<String>)> {
     let mut file_data = None;
     let mut complexity = None;
+    let mut filename = None;
+    let mut grid_division = None;
 
     let full_boundary = format!("--{}", boundary);
     let boundary_bytes = full_boundary.as_bytes();
@@ -139,8 +145,18 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
             let content = &part[content_start..];
 
             let headers_str = String::from_utf8_lossy(headers);
-            
+
             if headers_str.contains("name=\"file\"") {
+                // Extract filename if present
+                if let Some(filename_start) = headers_str.find("filename=\"") {
+                    if let Some(filename_end) = headers_str[filename_start + 10..].find('\"') {
+                        filename = Some(
+                            headers_str[filename_start + 10..filename_start + 10 + filename_end]
+                                .to_string(),
+                        );
+                    }
+                }
+
                 // Remove trailing CRLF if present
                 let content_len = if content.ends_with(b"\r\n") {
                     content.len() - 2
@@ -156,6 +172,11 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
                     })?);
                     helpers::validate_pattern_config(complexity.unwrap())?;
                 }
+            } else if headers_str.contains("name=\"grid_division\"") {
+                let value = String::from_utf8_lossy(content).trim().to_string();
+                if !value.is_empty() {
+                    grid_division = Some(value);
+                }
             }
         }
     }
@@ -163,26 +184,27 @@ fn parse_multipart(bytes: &[u8], boundary: &str) -> Result<(Vec<u8>, Option<f64>
     let file_data = file_data
         .ok_or_else(|| RhythmixError::InvalidRequest("No file found in request".into()))?;
 
-    Ok((file_data, complexity))
+    Ok((file_data, complexity, filename, grid_division))
 }
 
 /// Find position of double CRLF in bytes
 fn find_double_crlf(bytes: &[u8]) -> Option<usize> {
-    bytes.windows(4)
-        .position(|window| window == b"\r\n\r\n")
+    bytes.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
 /// Processes audio data and generates pattern
 async fn process_audio(
     file_data: Vec<u8>,
     complexity: Option<f64>,
+    filename: Option<String>,
+    grid_division: Option<String>,
     _thread_pool: Arc<ThreadPool>,
 ) -> Result<crate::common::types::PatternData> {
     // Log file data size
     log::info!("Processing audio file of size {} bytes", file_data.len());
 
     // Create cursor and try to decode
-    let cursor = Cursor::new(file_data);
+    let cursor = Cursor::new(file_data.to_owned());
     let decoder = AudioDecoder::from_bytes(cursor.into_inner())?;
     let sample_rate = decoder.sample_rate();
     let mono_samples = decoder.to_mono();
@@ -208,9 +230,36 @@ async fn process_audio(
     if let Some(c) = complexity {
         generator_config.difficulty_config.base_level = c;
     }
+    let tag_cursor = Cursor::new(&file_data);
+    let title = Tag::read_from2(tag_cursor)
+        .ok()
+        .and_then(|tag| tag.title().map(|s| s.to_string()))
+        .unwrap_or_else(|| filename.unwrap_or_else(|| "Unknown".to_string()));
 
     // Generate pattern
-    let mut generator = PatternGenerator::new(generator_config, analysis_results.bpm)?;
+    // Create pattern generator
+    let mut generator = PatternGenerator::new(
+        generator_config,
+        analysis_results.bpm,
+        title,
+    )?;
+
+    // Set grid division if specified
+    if let Some(division) = grid_division {
+        use crate::pattern::timing::GridDivision;
+        let division = match division.to_lowercase().as_str() {
+            "doublebreve" => GridDivision::DoubleBreve,
+            "breve" => GridDivision::Breve,
+            "whole" => GridDivision::Whole,
+            "half" => GridDivision::Half,
+            "quarter" => GridDivision::Quarter,
+            "eighth" => GridDivision::Eighth,
+            "sixteenth" => GridDivision::Sixteenth,
+            _ => GridDivision::Quarter, // Default to quarter notes
+        };
+        generator.set_grid_division(division);
+    }
+
     let pattern_data = generator.generate_pattern(&analysis_results)?;
 
     Ok(pattern_data)

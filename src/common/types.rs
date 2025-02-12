@@ -12,6 +12,10 @@ pub struct PatternMetadata {
     pub difficulty: f64,
     /// Recommended scroll speed for optimal gameplay
     pub recommended_scroll_speed: f64,
+    /// Name of the song
+    pub name: String,
+    // Base64 encoded audio data
+    // pub encoded_song: String,
 }
 
 /// Beat marker for visual feedback

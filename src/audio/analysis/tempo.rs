@@ -40,7 +40,7 @@ impl Default for TimeSignature {
     fn default() -> Self {
         Self {
             beats_per_measure: 4, // Default to 4/4
-            beat_unit: 4,
+            beat_unit: 8,
             confidence: 0.0,
         }
     }
@@ -242,7 +242,20 @@ impl TempoAnalyzer {
                 let max_ioi = 60.0 / self.config.min_bpm;
 
                 if ioi >= min_ioi && ioi <= max_ioi {
-                    self.inter_onset_intervals.push_back(ioi);
+                    // Detect if we're in a buildup (increasing tempo)
+                    let is_buildup = self.inter_onset_intervals.len() >= 3
+                        && self.inter_onset_intervals[self.inter_onset_intervals.len() - 1]
+                            < self.inter_onset_intervals[self.inter_onset_intervals.len() - 2]
+                        && self.inter_onset_intervals[self.inter_onset_intervals.len() - 2]
+                            < self.inter_onset_intervals[self.inter_onset_intervals.len() - 3];
+
+                    // Double tempo for slower sections or during buildups
+                    let adjusted_ioi = if ioi > 60.0 / 100.0 || is_buildup {
+                        ioi / 2.0
+                    } else {
+                        ioi
+                    };
+                    self.inter_onset_intervals.push_back(adjusted_ioi);
 
                     // Keep a sliding window of intervals
                     let window_size = (self.config.tempo_window / min_ioi).ceil() as usize;
@@ -334,17 +347,33 @@ impl TempoAnalyzer {
 
     /// Find clusters of similar BPM values
     fn find_bpm_clusters(&self, bpms: &[f64]) -> Vec<BpmCluster> {
-        let mut clusters: Vec<BpmCluster> = Vec::new();
-        let tolerance = 2.0; // BPM tolerance for clustering
+        use std::collections::BTreeMap;
+
+        // Group BPMs into buckets to reduce comparisons
+        let tolerance = 2.0;
+        let mut buckets: BTreeMap<i32, BpmCluster> = BTreeMap::new();
 
         for &bpm in bpms {
-            // Try to add to existing cluster
-            let mut added = false;
-            for cluster in &mut clusters {
+            // Find bucket for this BPM
+            let bucket_key = (bpm / tolerance).floor() as i32;
+
+            // Try to add to existing cluster in bucket
+            if let Some(cluster) = buckets.get_mut(&bucket_key) {
                 if (cluster.bpm - bpm).abs() <= tolerance {
                     cluster.add_value(bpm);
-                    added = true;
-                    break;
+                    continue;
+                }
+            }
+
+            // Check neighboring buckets
+            let mut added = false;
+            for offset in [-1, 0, 1] {
+                if let Some(cluster) = buckets.get_mut(&(bucket_key + offset)) {
+                    if (cluster.bpm - bpm).abs() <= tolerance {
+                        cluster.add_value(bpm);
+                        added = true;
+                        break;
+                    }
                 }
             }
 
@@ -352,23 +381,24 @@ impl TempoAnalyzer {
             if !added {
                 let mut cluster = BpmCluster::new(bpm);
                 cluster.add_value(bpm);
-                clusters.push(cluster);
+                buckets.insert(bucket_key, cluster);
             }
         }
 
-        // Merge overlapping clusters
+        // Convert buckets to sorted clusters
+        let mut clusters: Vec<BpmCluster> = buckets.into_values().collect();
+
+        // Merge clusters that are close together
+        clusters.sort_by(|a, b| a.bpm.partial_cmp(&b.bpm).unwrap());
+
         let mut i = 0;
-        while i < clusters.len() {
-            let mut j = i + 1;
-            while j < clusters.len() {
-                if (clusters[i].bpm - clusters[j].bpm).abs() <= tolerance * 1.5 {
-                    let removed = clusters.remove(j);
-                    clusters[i].merge(&removed);
-                } else {
-                    j += 1;
-                }
+        while i < clusters.len() - 1 {
+            if (clusters[i].bpm - clusters[i + 1].bpm).abs() <= tolerance * 1.5 {
+                let next = clusters.remove(i + 1);
+                clusters[i].merge(&next);
+            } else {
+                i += 1;
             }
-            i += 1;
         }
 
         // Ensure at least one cluster
@@ -408,7 +438,7 @@ mod tests {
             let jitter = rng.gen_range(-0.01..0.01); // ±10ms jitter
             time += interval + jitter;
 
-            if let Ok(Some(results)) = analyzer.process_onset(time) {
+            if let Ok(Some(results)) = analyzer.process_onset(time, 1.0) {
                 // Allow for some variance due to jitter
                 assert!(
                     (results.bpm - 120.0).abs() < 5.0,
@@ -449,9 +479,9 @@ mod tests {
         let too_fast = 60.0 / 200.0; // 200 BPM
         let too_slow = 60.0 / 40.0; // 40 BPM
 
-        assert!(analyzer.process_onset(0.0).unwrap().is_none());
-        assert!(analyzer.process_onset(too_fast).unwrap().is_none());
-        assert!(analyzer.process_onset(too_slow).unwrap().is_none());
+        assert!(analyzer.process_onset(0.0, 1.0).unwrap().is_none());
+        assert!(analyzer.process_onset(too_fast, 1.0).unwrap().is_none());
+        assert!(analyzer.process_onset(too_slow, 1.0).unwrap().is_none());
     }
 
     #[test]
@@ -473,7 +503,7 @@ mod tests {
             let jitter = rng.gen_range(-0.01..0.01);
             time += 60.0 / base_bpm + jitter;
 
-            let _ = analyzer.process_onset(time);
+            let _ = analyzer.process_onset(time, 1.0);
         }
 
         // Check that clustering found a reasonable middle ground
