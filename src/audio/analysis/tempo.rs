@@ -19,8 +19,8 @@ impl Default for TempoConfig {
         Self {
             min_bpm: 165.0,     // Set for DnB range
             max_bpm: 185.0,     // Upper limit for DnB
-            tempo_window: 5.0,   // Shorter window for better responsiveness
-            confidence_threshold: 0.3, // More permissive for initial detection
+            tempo_window: 4.0,   // Shorter window for higher precision
+            confidence_threshold: 0.4, // Stricter for more accurate detection
         }
     }
 }

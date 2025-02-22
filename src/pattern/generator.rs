@@ -87,39 +87,40 @@ impl PatternGenerator {
         let mut notes = Vec::new();
         let duration = analysis.onset_times.last().copied().unwrap_or(0.0);
         
-        // Calculate beat duration and note spacing based on grid division
+        // Calculate exact beat duration
         let beat_duration = 60.0 / self.bpm;
-        let note_spacing = match self.grid_division {
-            GridDivision::DoubleBreve => beat_duration * 8.0,   // 8 beats between notes
-            GridDivision::Breve => beat_duration * 4.0,         // 4 beats between notes
-            GridDivision::Whole => beat_duration * 2.0,         // 2 beats between notes
-            GridDivision::Half => beat_duration * 1.0,          // 1 beat between notes
-            GridDivision::Quarter => beat_duration * 0.5,       // 1/2 beat between notes
-            GridDivision::Eighth => beat_duration * 0.25,       // 1/4 beat between notes
-            GridDivision::Sixteenth => beat_duration * 0.125,   // 1/8 beat between notes
-        };
         
-        // Generate notes with proper spacing
-        let mut current_time = 0.0;
-        while current_time < duration {
-            // Calculate which note number this is (0-based) for lane pattern
-            let note_index = (current_time / note_spacing).floor();
-            let lane = match (note_index as i32) % 4 {
-                0 => 0,  // Left
-                1 => 1,  // Center
-                2 => 2,  // Right
-                3 => 1,  // Center
-                _ => 1,
+        // Calculate total number of beats
+        let total_beats = (duration / beat_duration).ceil() as i32;
+        
+        // Generate a note for each beat in 4/4 time
+        for beat in 0..total_beats {
+            // Calculate exact beat timestamp
+            let timestamp = beat as f64 * beat_duration;
+            
+            // Skip if we've exceeded the duration
+            if timestamp >= duration {
+                break;
+            }
+            
+            // In 4/4 time, determine which beat in the measure (0-3)
+            let beat_in_measure = beat % 4;
+            
+            // Assign lane based on beat position in measure
+            let lane = match beat_in_measure {
+                0 => 0,  // First beat: Left lane
+                1 => 1,  // Second beat: Center lane
+                2 => 2,  // Third beat: Right lane
+                3 => 1,  // Fourth beat: Center lane
+                _ => unreachable!(),
             };
             
             notes.push(Note {
-                timestamp: current_time,
+                timestamp,
                 note_type: NoteType::Tap,
                 lane: Lane::new(lane, 3)?,
                 intensity: 1.0,
             });
-            
-            current_time += note_spacing;
         }
         
         Ok(notes)
@@ -160,6 +161,45 @@ mod tests {
         assert_eq!(notes[1].lane.0, 1); // Second beat: center
         assert_eq!(notes[2].lane.0, 2); // Third beat: right
         assert_eq!(notes[3].lane.0, 1); // Fourth beat: center
+    }
+
+    #[test]
+    fn test_exact_beat_timing() {
+        let config = GeneratorConfig::default();
+        let bpm = 174.0;
+        let mut generator = PatternGenerator::new(config, bpm, "test".to_string()).unwrap();
+        
+        let analysis = AnalysisResults {
+            bpm,
+            tempo_confidence: 1.0,
+            time_signature: TimeSignature::default(),
+            onset_times: vec![0.0, 1.0, 2.0],  // Doesn't matter, we ignore onsets now
+            onset_strengths: vec![1.0, 1.0, 1.0],
+            onset_features: vec![],
+            avg_features: None,
+        };
+        
+        let pattern = generator.generate_pattern(&analysis).unwrap();
+        let notes = pattern.notes;
+        
+        // Calculate exact beat duration
+        let beat_duration = 60.0 / bpm;
+        
+        // Check first measure (4 beats)
+        for i in 0..4 {
+            let expected_time = i as f64 * beat_duration;
+            assert_approx_eq!(notes[i].timestamp, expected_time, 0.000001);
+            
+            // Verify lane pattern (Left -> Center -> Right -> Center)
+            let expected_lane = match i % 4 {
+                0 => 0,  // Left
+                1 => 1,  // Center
+                2 => 2,  // Right
+                3 => 1,  // Center
+                _ => unreachable!(),
+            };
+            assert_eq!(notes[i].lane.0, expected_lane);
+        }
     }
 
     #[test]

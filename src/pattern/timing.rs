@@ -2,7 +2,7 @@ use crate::common::Result;
 
 /// Core timing constants for 4/4 time
 pub const BEATS_PER_MEASURE: usize = 4; // 4/4 time signature
-pub const SUBDIVISION_TOLERANCE: f64 = 0.00005; // 50ms snap tolerance
+pub const SUBDIVISION_TOLERANCE: f64 = 0.00002; // 20ms snap tolerance
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridDivision {
