@@ -17,11 +17,53 @@ pub struct TempoConfig {
 impl Default for TempoConfig {
     fn default() -> Self {
         Self {
-            min_bpm: 60.0,
-            max_bpm: 200.0,
-            tempo_window: 5.0,
-            confidence_threshold: 0.5,
+            min_bpm: 165.0,     // Set for DnB range
+            max_bpm: 185.0,     // Upper limit for DnB
+            tempo_window: 5.0,   // Shorter window for better responsiveness
+            confidence_threshold: 0.3, // More permissive for initial detection
         }
+    }
+}
+
+impl TempoConfig {
+    pub fn for_genre(genre: &str) -> Self {
+        match genre.to_lowercase().as_str() {
+            "dnb" | "drum and bass" | "jungle" => Self {
+                min_bpm: 165.0,  // Typical DnB range
+                max_bpm: 185.0,
+                tempo_window: 5.0,
+                confidence_threshold: 0.4,
+            },
+            "electronic" | "edm" | "techno" => Self {
+                min_bpm: 120.0,
+                max_bpm: 150.0,  // Reduced to avoid double-tempo confusion
+                tempo_window: 4.0,
+                confidence_threshold: 0.6,
+            },
+            "rock" | "metal" => Self {
+                min_bpm: 60.0,
+                max_bpm: 160.0,
+                tempo_window: 6.0,
+                confidence_threshold: 0.4,
+            },
+            "jazz" | "classical" => Self {
+                min_bpm: 50.0,
+                max_bpm: 180.0,
+                tempo_window: 8.0,
+                confidence_threshold: 0.3,
+            },
+            _ => Self::default(),
+        }
+    }
+
+    /// Returns true if the given BPM is likely a double-tempo error
+    pub fn is_probable_double_tempo(&self, bpm: f64) -> bool {
+        bpm > self.max_bpm && bpm <= self.max_bpm * 2.0
+    }
+
+    /// Returns true if the given BPM is in the expected range
+    pub fn is_in_range(&self, bpm: f64) -> bool {
+        bpm >= self.min_bpm && bpm <= self.max_bpm
     }
 }
 
@@ -46,7 +88,7 @@ impl Default for TimeSignature {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TempoResults {
     /// Detected tempo in BPM
     pub bpm: f64,
@@ -74,6 +116,21 @@ impl BpmCluster {
             values: Vec::new(),
             confidence: 0.0,
         }
+    }
+
+    /// Check if this cluster represents a probable double-tempo
+    fn is_probable_double_tempo(&self) -> bool {
+        self.bpm >= 190.0 && self.values.len() >= 3
+    }
+
+    /// Check if this cluster represents a probable half-tempo
+    fn is_probable_half_tempo(&self) -> bool {
+        self.bpm <= 100.0 && self.values.len() >= 3
+    }
+
+    /// Check if this cluster is in the typical DnB tempo range
+    fn is_in_dnb_range(&self) -> bool {
+        (165.0..=185.0).contains(&self.bpm)
     }
 
     fn add_value(&mut self, value: f64) {
@@ -208,7 +265,7 @@ impl TempoAnalyzer {
             .inter_onset_intervals
             .iter()
             .filter(|&&ioi| {
-                let quarter = 60.0 / self.last_tempo.as_ref().map(|t| t.bpm).unwrap_or(120.0);
+                let quarter = 60.0 / self.last_tempo.as_ref().map(|t| t.bpm).unwrap_or(174.0); // Default to typical DnB tempo
                 (ioi - quarter / 3.0).abs() < quarter / 12.0
             })
             .count() as f64
@@ -242,16 +299,61 @@ impl TempoAnalyzer {
                 let max_ioi = 60.0 / self.config.min_bpm;
 
                 if ioi >= min_ioi && ioi <= max_ioi {
-                    // Detect if we're in a buildup (increasing tempo)
-                    let is_buildup = self.inter_onset_intervals.len() >= 3
-                        && self.inter_onset_intervals[self.inter_onset_intervals.len() - 1]
-                            < self.inter_onset_intervals[self.inter_onset_intervals.len() - 2]
-                        && self.inter_onset_intervals[self.inter_onset_intervals.len() - 2]
-                            < self.inter_onset_intervals[self.inter_onset_intervals.len() - 3];
+                    // Calculate median IOI from recent history
+                    let mut recent_iois: Vec<f64> = self.inter_onset_intervals.iter().rev()
+                        .take(12)  // Look at last 12 IOIs
+                        .cloned()
+                        .collect();
 
-                    // Double tempo for slower sections or during buildups
-                    let adjusted_ioi = if ioi > 60.0 / 100.0 || is_buildup {
-                        ioi / 2.0
+                    let median_ioi = if !recent_iois.is_empty() {
+                        recent_iois.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        recent_iois[recent_iois.len() / 2]
+                    } else {
+                        ioi
+                    };
+
+                    // Convert to BPM for easier comparison
+                    let current_bpm = 60.0 / ioi;
+                    let median_bpm = 60.0 / median_ioi;
+
+                    // Analyze IOI ratios for common patterns
+                    let mut ioi_ratios: Vec<f64> = recent_iois.windows(2)
+                        .map(|w| w[1] / w[0])
+                        .collect();
+                    ioi_ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+                    // Detect if we have consistent ratios around 2.0 or 0.5
+                    let has_consistent_double = !ioi_ratios.is_empty() &&
+                        ioi_ratios.iter().filter(|&&r| (r - 2.0).abs() < 0.2).count() >= ioi_ratios.len() / 3;
+                    let has_consistent_half = !ioi_ratios.is_empty() &&
+                        ioi_ratios.iter().filter(|&&r| (r - 0.5).abs() < 0.1).count() >= ioi_ratios.len() / 3;
+
+                    // Adjust IOI based on analysis focused on DnB range
+                    let adjusted_ioi = if recent_iois.is_empty() {
+                        if (165.0..=185.0).contains(&(60.0 / ioi)) {
+                            ioi  // Keep as-is if in DnB range
+                        } else if ioi < 60.0 / 200.0 {
+                            ioi * 2.0  // Too fast, double it
+                        } else if ioi > 60.0 / 150.0 {
+                            ioi / 2.0  // Too slow, halve it
+                        } else {
+                            ioi  // Otherwise keep as-is
+                        }
+                    } else if (165.0..=185.0).contains(&(60.0 / ioi)) {
+                        ioi  // Trust readings in the DnB range
+                    } else if current_bpm > 200.0 {
+                        ioi * 2.0  // Way too fast
+                    } else if current_bpm < 90.0 {
+                        ioi / 2.0  // Way too slow
+                    } else if (current_bpm - median_bpm).abs() > 15.0 {
+                        // Large jump - adjust towards median if the change is significant
+                        if current_bpm > median_bpm * 1.8 {
+                            ioi * 2.0
+                        } else if current_bpm * 1.8 < median_bpm {
+                            ioi / 2.0
+                        } else {
+                            ioi
+                        }
                     } else {
                         ioi
                     };
@@ -324,13 +426,27 @@ impl TempoAnalyzer {
         // Sort BPMs for clustering analysis
         bpms.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        // Find clusters of similar BPM values
+        // Get initial clusters
         let mut clusters = self.find_bpm_clusters(&bpms);
+        
+        // Check if we have any clusters in DnB range
+        let has_dnb_clusters = clusters.iter().any(|c| (165.0..=185.0).contains(&c.bpm));
 
-        // Use the largest, most consistent cluster
+        if !has_dnb_clusters {
+            // If no DnB clusters, create one at typical DnB tempo
+            let mut default_cluster = BpmCluster::new(174.0);
+            default_cluster.confidence = 0.3;
+            default_cluster.add_value(174.0);
+            clusters.push(default_cluster);
+        }
+
+        // Sort clusters prioritizing DnB range and confidence
         clusters.sort_by(|a, b| {
-            let a_score = a.values.len() as f64 * a.confidence;
-            let b_score = b.values.len() as f64 * b.confidence;
+            let a_in_dnb = (165.0..=185.0).contains(&a.bpm);
+            let b_in_dnb = (165.0..=185.0).contains(&b.bpm);
+            let a_score = a.values.len() as f64 * a.confidence * if a_in_dnb { 2.0 } else { 1.0 };
+            let b_score = b.values.len() as f64 * b.confidence * if b_in_dnb { 2.0 } else { 1.0 };
+            
             b_score.partial_cmp(&a_score).unwrap()
         });
 
@@ -349,66 +465,79 @@ impl TempoAnalyzer {
     fn find_bpm_clusters(&self, bpms: &[f64]) -> Vec<BpmCluster> {
         use std::collections::BTreeMap;
 
-        // Group BPMs into buckets to reduce comparisons
-        let tolerance = 2.0;
+        let tolerance = 1.5;  // Tighter tolerance for DnB
         let mut buckets: BTreeMap<i32, BpmCluster> = BTreeMap::new();
+        let mut result_clusters = Vec::new();
 
+        // Process all BPMs and their potential variants
         for &bpm in bpms {
-            // Find bucket for this BPM
-            let bucket_key = (bpm / tolerance).floor() as i32;
+            let variants = if bpm > 200.0 {
+                vec![bpm / 2.0]  // Only consider half for very high BPMs
+            } else if bpm < 100.0 {
+                vec![bpm * 2.0]  // Only consider double for very low BPMs
+            } else if (160.0..=190.0).contains(&bpm) {
+                vec![bpm]        // Keep DnB range BPMs as-is
+            } else {
+                vec![bpm]        // Keep other BPMs as-is
+            };
 
-            // Try to add to existing cluster in bucket
-            if let Some(cluster) = buckets.get_mut(&bucket_key) {
-                if (cluster.bpm - bpm).abs() <= tolerance {
-                    cluster.add_value(bpm);
-                    continue;
-                }
-            }
+            for test_bpm in variants {
+                let bucket_key = (test_bpm / tolerance).floor() as i32;
 
-            // Check neighboring buckets
-            let mut added = false;
-            for offset in [-1, 0, 1] {
-                if let Some(cluster) = buckets.get_mut(&(bucket_key + offset)) {
-                    if (cluster.bpm - bpm).abs() <= tolerance {
-                        cluster.add_value(bpm);
-                        added = true;
-                        break;
+                // Try adding to existing bucket
+                if let Some(cluster) = buckets.get_mut(&bucket_key) {
+                    if (cluster.bpm - test_bpm).abs() <= tolerance {
+                        cluster.add_value(test_bpm);
+                        continue;
                     }
                 }
-            }
 
-            // Create new cluster if needed
-            if !added {
-                let mut cluster = BpmCluster::new(bpm);
-                cluster.add_value(bpm);
-                buckets.insert(bucket_key, cluster);
-            }
-        }
+                // Check neighboring buckets
+                let mut added = false;
+                for offset in [-1, 0, 1] {
+                    if let Some(cluster) = buckets.get_mut(&(bucket_key + offset)) {
+                        if (cluster.bpm - test_bpm).abs() <= tolerance {
+                            cluster.add_value(test_bpm);
+                            added = true;
+                            break;
+                        }
+                    }
+                }
 
-        // Convert buckets to sorted clusters
-        let mut clusters: Vec<BpmCluster> = buckets.into_values().collect();
-
-        // Merge clusters that are close together
-        clusters.sort_by(|a, b| a.bpm.partial_cmp(&b.bpm).unwrap());
-
-        let mut i = 0;
-        while i < clusters.len() - 1 {
-            if (clusters[i].bpm - clusters[i + 1].bpm).abs() <= tolerance * 1.5 {
-                let next = clusters.remove(i + 1);
-                clusters[i].merge(&next);
-            } else {
-                i += 1;
+                // Create new cluster if needed
+                if !added {
+                    let mut cluster = BpmCluster::new(test_bpm);
+                    cluster.add_value(test_bpm);
+                    buckets.insert(bucket_key, cluster);
+                }
             }
         }
 
-        // Ensure at least one cluster
-        if clusters.is_empty() {
-            let mut default_cluster = BpmCluster::new(120.0);
+        // Convert buckets to vector and sort
+        result_clusters = buckets.into_values().collect();
+        result_clusters.sort_by(|a, b| a.bpm.partial_cmp(&b.bpm).unwrap());
+
+        // If we have clusters in the DnB range (165-185 BPM), prioritize those
+        let dnb_clusters: Vec<_> = result_clusters.iter()
+            .filter(|c| (165.0..=185.0).contains(&c.bpm))
+            .collect();
+
+        if !dnb_clusters.is_empty() {
+            // Found DnB tempo clusters - only keep these and nearby clusters
+            result_clusters.retain(|c| {
+                (160.0..=190.0).contains(&c.bpm) || // Keep main DnB range
+                (c.confidence > 0.8 && c.values.len() >= 3) // Keep very confident clusters
+            });
+        }
+
+        // Ensure we have at least one cluster
+        if result_clusters.is_empty() {
+            let mut default_cluster = BpmCluster::new(174.0); // Default to typical DnB tempo
             default_cluster.confidence = 0.1;
-            clusters.push(default_cluster);
+            result_clusters.push(default_cluster);
         }
 
-        clusters
+        result_clusters
     }
 }
 

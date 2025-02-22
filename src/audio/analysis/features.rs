@@ -22,7 +22,7 @@ pub struct FeatureConfig {
 impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
-            window_size: 2048,
+            window_size: 1024,  // Changed to match OnsetConfig
             num_bands: 32,
             bass_band_min: 20.0,
             bass_band_max: 250.0,

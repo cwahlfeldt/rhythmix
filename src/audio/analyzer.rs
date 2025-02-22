@@ -22,7 +22,8 @@ impl Default for AnalysisConfig {
     fn default() -> Self {
         Self {
             onset_config: OnsetConfig::default(),
-            tempo_config: TempoConfig::default(),
+            // Use DnB-specific tempo config
+            tempo_config: TempoConfig::for_genre("dnb"),
             feature_config: FeatureConfig::default(),
         }
     }
@@ -142,10 +143,20 @@ impl AudioAnalyzer {
             // Update tempo analysis
             if let Ok(Some(tempo_result)) = self.tempo_analyzer.process_onset(self.current_time, onset_result.strength as f64) {
                 log::info!(
-                    "Tempo update - BPM: {:.1}, Confidence: {:.2}",
+                    "Tempo update at {:.2}s - BPM: {:.1}, Confidence: {:.2}",
+                    self.current_time,
                     tempo_result.bpm,
                     tempo_result.confidence
                 );
+                
+                // Check current tempo state
+                if let Some((current_bpm, current_conf)) = self.tempo_analyzer.get_last_tempo() {
+                    log::info!(
+                        "Current tempo state - BPM: {:.1}, Confidence: {:.2}",
+                        current_bpm,
+                        current_conf
+                    );
+                }
             }
 
             // Store onset information
@@ -168,13 +179,32 @@ impl AudioAnalyzer {
 
     /// Get the current analysis state
     pub fn get_current_state(&self) -> AnalysisResults {
-        let last_tempo = self.tempo_analyzer
-            .get_last_tempo()
-            .unwrap_or_else(|| (120.0, 0.0));
+        // Get the latest tempo analysis
+        let (bpm, confidence) = if let Some((detected_bpm, detected_conf)) = self.tempo_analyzer.get_last_tempo() {
+            // If we have a detected tempo and it's reasonable, use it
+            if (165.0..=185.0).contains(&detected_bpm) || detected_conf > 0.6 {
+                (detected_bpm, detected_conf)
+            } else {
+                // Outside DnB range, check if it's a multiple
+                let halved = detected_bpm / 2.0;
+                let doubled = detected_bpm * 2.0;
+                
+                if (165.0..=185.0).contains(&halved) {
+                    (halved, detected_conf * 0.9)
+                } else if (165.0..=185.0).contains(&doubled) {
+                    (doubled, detected_conf * 0.9)
+                } else {
+                    // If nothing reasonable found, default to DnB tempo
+                    (174.0, 0.3)
+                }
+            }
+        } else {
+            (174.0, 0.3)  // Default only if no tempo detected
+        };
 
         AnalysisResults {
-            bpm: last_tempo.0,
-            tempo_confidence: last_tempo.1,
+            bpm,
+            tempo_confidence: confidence,
             time_signature: TimeSignature::default(),
             onset_times: self.onset_times.clone(),
             onset_strengths: self.onset_strengths.clone(),

@@ -22,12 +22,25 @@ pub struct OnsetConfig {
 impl Default for OnsetConfig {
     fn default() -> Self {
         Self {
-            window_size: 2048,
-            num_bands: 32,
-            flux_threshold: 0.3,
-            phase_threshold: 0.15,
-            min_interval: 4,
-            moving_avg_size: 8,
+            window_size: 1024,  // ~23ms at 44.1kHz - good for transients
+            num_bands: 64,      // More bands for better frequency resolution
+            flux_threshold: 0.2, // More sensitive to energy changes
+            phase_threshold: 0.25, // More sensitive to phase changes
+            min_interval: 2,     // Allow closer onsets (~46ms at 44.1kHz)
+            moving_avg_size: 16, // Longer history for better adaptive thresholding
+        }
+    }
+}
+
+impl OnsetConfig {
+    pub fn for_dnb() -> Self {
+        Self {
+            window_size: 1024,
+            num_bands: 64,
+            flux_threshold: 0.15,  // Even more sensitive for fast transients
+            phase_threshold: 0.3,  // Higher phase sensitivity for hi-hats
+            min_interval: 2,       // Allow fast patterns
+            moving_avg_size: 16,
         }
     }
 }
@@ -217,9 +230,26 @@ impl OnsetDetector {
             0.0
         };
 
-        // Combine methods for final decision
-        let is_onset = if self.last_onset >= self.config.min_interval {
-            if flux_onset || phase_onset {
+        // Calculate combined strength with weighted importance
+        let combined_strength = 0.7 * flux_strength + 0.3 * phase_strength;
+
+        // Adaptive minimum interval based on strength and tempo range
+        let min_interval = if combined_strength > 0.8 {
+            // For strong beats, allow closer spacing (good for DnB kicks/snares)
+            (self.config.min_interval as f32 * 0.75) as usize
+        } else if combined_strength > 0.6 {
+            // Moderately strong beats
+            (self.config.min_interval as f32 * 0.85) as usize
+        } else {
+            self.config.min_interval
+        };
+
+        // Combine methods for final decision with strength thresholds
+        let is_onset = if self.last_onset >= min_interval {
+            // Strong onsets need less confirmation
+            if (flux_onset && flux_strength > 0.4) || 
+               (phase_onset && phase_strength > 0.4) ||
+               (flux_onset && phase_onset && (flux_strength + phase_strength) > 0.6) {
                 self.last_onset = 0;
                 true
             } else {
@@ -234,7 +264,7 @@ impl OnsetDetector {
             is_onset,
             flux,
             phase_dev,
-            strength: 0.5 * (flux_strength + phase_strength),
+            strength: combined_strength,
         }
     }
 }
