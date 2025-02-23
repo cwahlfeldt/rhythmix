@@ -223,7 +223,7 @@ async fn process_audio(
     }
 
     // Get analysis results
-    let analysis_results = analyzer.get_results();
+    let analysis_results = analyzer.get_results()?;
 
     // Configure pattern generator
     let mut generator_config = GeneratorConfig::default();

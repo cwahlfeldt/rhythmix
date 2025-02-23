@@ -39,9 +39,17 @@ impl OnsetConfig {
             num_bands: 64,
             flux_threshold: 0.15,  // Even more sensitive for fast transients
             phase_threshold: 0.3,  // Higher phase sensitivity for hi-hats
-            min_interval: 2,       // Allow fast patterns
-            moving_avg_size: 16,
+            min_interval: 2,       // Allow fast patterns at DnB tempos
+            moving_avg_size: 32,   // Longer window for better beat alignment
         }
+    }
+    
+    /// Adjust thresholds for metronome-like precision
+    pub fn with_metronome_precision(mut self) -> Self {
+        self.flux_threshold *= 0.8;  // More sensitive to energy changes
+        self.phase_threshold *= 0.8; // More sensitive to phase changes
+        self.moving_avg_size *= 2;   // Longer window for stability
+        self
     }
 }
 
@@ -247,9 +255,9 @@ impl OnsetDetector {
         // Combine methods for final decision with strength thresholds
         let is_onset = if self.last_onset >= min_interval {
             // Strong onsets need less confirmation
-            if (flux_onset && flux_strength > 0.4) || 
-               (phase_onset && phase_strength > 0.4) ||
-               (flux_onset && phase_onset && (flux_strength + phase_strength) > 0.6) {
+            if (flux_onset && flux_strength > 0.5) || 
+               (phase_onset && phase_strength > 0.5) ||
+               (flux_onset && phase_onset && (flux_strength + phase_strength) > 0.7) {
                 self.last_onset = 0;
                 true
             } else {

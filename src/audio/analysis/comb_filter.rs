@@ -49,6 +49,14 @@ impl CombFilterAnalyzer {
 
     /// Analyze a section of audio using comb filter method
     pub fn analyze(&self, samples: &[f32]) -> Result<Vec<(f64, f64)>> {
+        if samples.len() != self.window_samples {
+            return Err(crate::common::RhythmixError::InvalidConfig(format!(
+                "Expected {} samples for FFT analysis, got {}",
+                self.window_samples,
+                samples.len()
+            )));
+        }
+
         let mut bpm_strengths = Vec::new();
         
         // For each BPM value

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Metadata about the analyzed audio and generated pattern
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatternMetadata {
-    /// Detected beats per minute
+    /// Detected beats per minute (high precision)
     pub bpm: f64,
     /// Duration of the audio in seconds
     pub duration: f64,
@@ -14,8 +14,12 @@ pub struct PatternMetadata {
     pub recommended_scroll_speed: f64,
     /// Name of the song
     pub name: String,
-    // Base64 encoded audio data
-    // pub encoded_song: String,
+    /// Grid division setting used
+    pub grid_division: String,
+    /// Seconds per beat (high precision)
+    pub seconds_per_beat: f64,
+    /// Seconds per grid division (high precision)
+    pub seconds_per_division: f64,
 }
 
 /// Beat marker for visual feedback

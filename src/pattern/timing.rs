@@ -2,7 +2,7 @@ use crate::common::Result;
 
 /// Core timing constants for 4/4 time
 pub const BEATS_PER_MEASURE: usize = 4; // 4/4 time signature
-pub const SUBDIVISION_TOLERANCE: f64 = 0.00002; // 20ms snap tolerance
+pub const SUBDIVISION_TOLERANCE: f64 = 0.000001; // 1ms snap tolerance for metronome-like precision
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GridDivision {
@@ -45,7 +45,7 @@ impl BeatGrid {
     }
 
     fn calculate_division_duration(seconds_per_beat: f64, division: GridDivision) -> f64 {
-        match division {
+        let duration = match division {
             GridDivision::DoubleBreve => seconds_per_beat * 8.0,   // 8 beats
             GridDivision::Breve => seconds_per_beat * 4.0,         // 4 beats
             GridDivision::Whole => seconds_per_beat * 2.0,         // 2 beats
@@ -53,7 +53,10 @@ impl BeatGrid {
             GridDivision::Quarter => seconds_per_beat * 0.5,       // 1/2 beat
             GridDivision::Eighth => seconds_per_beat * 0.25,       // 1/4 beat
             GridDivision::Sixteenth => seconds_per_beat * 0.125,   // 1/8 beat
-        }
+        };
+        
+        // Ensure precise floating-point calculation
+        (duration * 1_000_000.0).round() / 1_000_000.0
     }
 
     /// Set the grid division type
@@ -69,14 +72,29 @@ impl BeatGrid {
 
     /// Calculate the nearest grid position for a given time
     pub fn snap_to_grid(&self, time: f64) -> f64 {
-        let division_index = (time / self.seconds_per_division).round() as i64;
-        division_index as f64 * self.seconds_per_division
+        // First calculate the number of divisions with high precision
+        let division_count = (time / self.seconds_per_division * 1_000_000.0).round() / 1_000_000.0;
+        let division_index = division_count.round() as i64;
+        
+        // Then calculate the final time with high precision
+        ((division_index as f64 * self.seconds_per_division) * 1_000_000.0).round() / 1_000_000.0
     }
 
     /// Check if a time is close enough to a grid position
     pub fn is_on_grid(&self, time: f64) -> bool {
         let nearest_grid = self.snap_to_grid(time);
-        (time - nearest_grid).abs() <= SUBDIVISION_TOLERANCE
+        let distance = (time - nearest_grid).abs();
+        
+        // Add stricter checks for grid alignment
+        if distance <= SUBDIVISION_TOLERANCE {
+            // Verify it's actually on a valid subdivision
+            let beat_time = time % self.seconds_per_beat;
+            let division_count = (beat_time / self.seconds_per_division).round();
+            let expected_time = division_count * self.seconds_per_division;
+            (beat_time - expected_time).abs() <= SUBDIVISION_TOLERANCE
+        } else {
+            false
+        }
     }
 
     /// Get the grid position indices for a time range

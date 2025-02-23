@@ -61,22 +61,27 @@ impl PatternGenerator {
     }
 
     pub fn generate_pattern(&mut self, analysis: &AnalysisResults) -> Result<PatternData> {
-        if analysis.tempo_confidence > 0.6 {
-            self.bpm = analysis.bpm;
-            self.grid = BeatGrid::new(self.bpm);
-            self.grid.set_grid_division(self.grid_division);
-            log::info!("Using detected BPM: {:.1}", self.bpm);
-        }
+        // Always use the final analyzed BPM
+        self.bpm = analysis.bpm;
+        self.grid = BeatGrid::new(self.bpm);
+        self.grid.set_grid_division(self.grid_division);
+        log::info!("Using final BPM: {:.1} (confidence: {:.2})", self.bpm, analysis.tempo_confidence);
 
         let notes = self.generate_notes_with_features(analysis)?;
 
+        let seconds_per_beat = ((60.0f64 / self.bpm) * 1_000_000.0).round() / 1_000_000.0;
+        let seconds_per_division = self.grid.get_seconds_per_division();
+
         Ok(PatternData {
             metadata: PatternMetadata {
-                bpm: self.bpm,
+                bpm: ((self.bpm * 1_000_000.0).round() / 1_000_000.0),  // High precision BPM
                 duration: analysis.onset_times.last().copied().unwrap_or(0.0),
                 difficulty: self.difficulty.calculate_difficulty(),
                 recommended_scroll_speed: self.difficulty.get_recommended_scroll_speed(),
                 name: self.song_name.clone(),
+                grid_division: format!("{:?}", self.grid_division).to_lowercase(),
+                seconds_per_beat,
+                seconds_per_division,
             },
             notes,
             sections: Vec::new(),
@@ -87,40 +92,42 @@ impl PatternGenerator {
         let mut notes = Vec::new();
         let duration = analysis.onset_times.last().copied().unwrap_or(0.0);
         
-        // Calculate exact beat duration
-        let beat_duration = 60.0 / self.bpm;
+        // Calculate precise beat duration (use high precision arithmetic)
+        let beat_duration = (60.0f64 / self.bpm * 1_000_000.0).round() / 1_000_000.0;
         
-        // Calculate total number of beats
-        let total_beats = (duration / beat_duration).ceil() as i32;
+        // Calculate total beats, ensuring we don't exceed duration
+        let total_beats = (duration / beat_duration).floor() as i32;
         
-        // Generate a note for each beat in 4/4 time
+        // Get subdivisions per beat based on grid division
+        let subdivisions_per_beat = match self.grid_division {
+            GridDivision::Quarter => 1,
+            GridDivision::Eighth => 2,
+            GridDivision::Sixteenth => 4,
+            _ => 1, // Default to quarter notes
+        };
+        
+        // Generate notes on exact grid positions
         for beat in 0..total_beats {
-            // Calculate exact beat timestamp
-            let timestamp = beat as f64 * beat_duration;
-            
-            // Skip if we've exceeded the duration
-            if timestamp >= duration {
-                break;
+            for subdivision in 0..subdivisions_per_beat {
+                // Calculate precise timestamp with high-precision arithmetic
+                let mut timestamp = beat as f64 * beat_duration;
+                if subdivision > 0 {
+                    timestamp += (subdivision as f64 * beat_duration) / subdivisions_per_beat as f64;
+                }
+                
+                // Snap to grid to ensure perfect alignment
+                timestamp = self.grid.snap_to_grid(timestamp);
+                
+                // Only add note if within duration
+                if timestamp < duration {
+                    notes.push(Note {
+                        timestamp,
+                        note_type: NoteType::Tap,
+                        lane: Lane::new(1, 3)?, // Center lane
+                        intensity: if subdivision == 0 { 1.0 } else { 0.8 }, // Accent first subdivision
+                    });
+                }
             }
-            
-            // In 4/4 time, determine which beat in the measure (0-3)
-            let beat_in_measure = beat % 4;
-            
-            // Assign lane based on beat position in measure
-            let lane = match beat_in_measure {
-                0 => 0,  // First beat: Left lane
-                1 => 1,  // Second beat: Center lane
-                2 => 2,  // Third beat: Right lane
-                3 => 1,  // Fourth beat: Center lane
-                _ => unreachable!(),
-            };
-            
-            notes.push(Note {
-                timestamp,
-                note_type: NoteType::Tap,
-                lane: Lane::new(lane, 3)?,
-                intensity: 1.0,
-            });
         }
         
         Ok(notes)
